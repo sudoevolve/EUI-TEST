@@ -1,5 +1,6 @@
 #pragma once
 #include "../EUINEO.h"
+#include "../components/Panel.h"
 #include "../components/Button.h"
 #include "../components/ProgressBar.h"
 #include "../components/Slider.h"
@@ -12,6 +13,11 @@ namespace EUINEO {
 
 class MainPage {
 public:
+    Panel bgCircle1;
+    Panel bgCircle2;
+    Panel bgCircle3;
+    Panel glassCard;
+
     Label titleLabel;
     Button btnPrimary;
     Button btnOutline;
@@ -24,6 +30,9 @@ public:
     
     float testProgress = 0.0f;
     float testSliderVal = 50.0f;
+    float previousGlassBlurAmount = -1.0f;
+    Color previousGlassColor;
+    bool hasPreviousGlassState = false;
 
     MainPage();
     void Update();

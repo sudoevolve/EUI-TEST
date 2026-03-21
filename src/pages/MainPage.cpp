@@ -1,15 +1,69 @@
 #include "MainPage.h"
+#include <algorithm>
+#include <cmath>
 
 namespace EUINEO {
 
+static bool FloatEq(float a, float b, float epsilon = 0.0001f) {
+    return std::abs(a - b) <= epsilon;
+}
+
+static bool ColorEq(const Color& a, const Color& b, float epsilon = 0.0001f) {
+    return FloatEq(a.r, b.r, epsilon) &&
+           FloatEq(a.g, b.g, epsilon) &&
+           FloatEq(a.b, b.b, epsilon) &&
+           FloatEq(a.a, b.a, epsilon);
+}
+
+static void GetPanelDrawBounds(Panel& panel, float& outX, float& outY, float& outW, float& outH) {
+    panel.GetAbsoluteBounds(outX, outY);
+    float expand = panel.shadowBlur * 2.0f;
+    outX = outX - expand + std::min(0.0f, panel.shadowOffsetX);
+    outY = outY - expand + std::min(0.0f, panel.shadowOffsetY);
+    outW = panel.width + expand * 2.0f + std::abs(panel.shadowOffsetX);
+    outH = panel.height + expand * 2.0f + std::abs(panel.shadowOffsetY);
+}
+
+static void MarkPanelDirty(Panel& panel) {
+    float x = 0.0f;
+    float y = 0.0f;
+    float w = 0.0f;
+    float h = 0.0f;
+    GetPanelDrawBounds(panel, x, y, w, h);
+    Renderer::AddDirtyRect(x, y, w, h);
+    Renderer::RequestRepaint();
+}
+
 MainPage::MainPage() {
-    // 标题标签配置
-    titleLabel = Label("EUI-NEO", 0, -20);
+    bgCircle1 = Panel(-100, -100, 100, 100);
+    bgCircle1.anchor = Anchor::Center;
+    bgCircle1.color = Color(1.0f, 0.2f, 0.2f, 1.0f);
+    bgCircle1.rounding = 50.0f;
+
+    bgCircle2 = Panel(100, -100, 100, 100);
+    bgCircle2.anchor = Anchor::Center;
+    bgCircle2.color = Color(0.2f, 1.0f, 0.2f, 1.0f);
+    bgCircle2.rounding = 50.0f;
+
+    bgCircle3 = Panel(0, 0, 100, 100);
+    bgCircle3.anchor = Anchor::Center;
+    bgCircle3.color = Color(0.2f, 0.2f, 1.0f, 1.0f);
+    bgCircle3.rounding = 50.0f;
+
+    glassCard = Panel(0, 50, 340, 360);
+    glassCard.anchor = Anchor::Center;
+    glassCard.color = CurrentTheme->surface;
+    glassCard.color.a = 0.6f;
+    glassCard.rounding = 16.0f;
+    glassCard.shadowBlur = 20.0f;
+    glassCard.shadowOffsetY = 10.0f;
+    glassCard.shadowColor = Color(0.0f, 0.0f, 0.0f, 0.3f);
+
+    titleLabel = Label("EUI-NEO", 0, 30);
     titleLabel.anchor = Anchor::TopCenter;
     titleLabel.fontSize = 32.0f;
 
-    // 主要按钮配置
-    btnPrimary = Button("Primary", -70, 70, 120, 40);
+    btnPrimary = Button("Primary", -70, 50, 120, 40);
     btnPrimary.anchor = Anchor::TopCenter;
     btnPrimary.style = ButtonStyle::Primary;
     btnPrimary.fontSize = 20.0f;
@@ -17,46 +71,40 @@ MainPage::MainPage() {
         progBar.value += 0.1f;
         if (progBar.value > 1.0f) progBar.value = 0.0f;
         CurrentTheme = (CurrentTheme == &DarkTheme) ? &LightTheme : &DarkTheme;
+        Renderer::InvalidateBackdrop();
     };
 
-    // 轮廓按钮配置
-    btnOutline = Button("Outline", 70, 70, 120, 40);
+    btnOutline = Button("Outline", 70, 50, 120, 40);
     btnOutline.anchor = Anchor::TopCenter;
     btnOutline.style = ButtonStyle::Outline;
     btnOutline.fontSize = 20.0f;
     btnOutline.onClick = [this]() {
         slider.value = 0.0f;
     };
-    
-    // 图标按钮配置 (使用多个空格作为占位，拉开文本和图标的间距)
-    btnIcon = Button("Icon  \xEF\x80\x93", 0, 130, 120, 40);
+
+    btnIcon = Button("Icon  \xEF\x80\x93", 0, 110, 120, 40);
     btnIcon.anchor = Anchor::TopCenter;
     btnIcon.style = ButtonStyle::Default;
     btnIcon.fontSize = 20.0f;
 
-    // 进度条配置
     progBar = ProgressBar(0, -60, 300, 15);
     progBar.anchor = Anchor::Center;
-    progBar.value = 0.3f; // 初始进度
+    progBar.value = 0.3f;
 
-    // 滑块配置
     slider = Slider(0, -10, 300, 20);
     slider.anchor = Anchor::Center;
     slider.onValueChanged = [this](float val) {
         progBar.value = val;
     };
 
-    // 分段控制器配置
     segCtrl = SegmentedControl({"Apple", "Banana", "Cherry"}, 0, 40, 300, 35);
     segCtrl.anchor = Anchor::Center;
     segCtrl.fontSize = 20.0f;
-    
-    // 输入框配置
+
     inputBox = InputBox("Type something...", 0, 100, 300, 35);
     inputBox.anchor = Anchor::Center;
     inputBox.fontSize = 20.0f;
-    
-    // 下拉框配置
+
     comboBox = ComboBox("Select an option", 0, 160, 300, 35);
     comboBox.anchor = Anchor::Center;
     comboBox.fontSize = 20.0f;
@@ -73,11 +121,29 @@ void MainPage::Update() {
     slider.Update();
     segCtrl.Update();
     inputBox.Update();
-    // Dropdown needs to be updated last to handle click outside
     comboBox.Update();
+
+    glassCard.color = CurrentTheme->surface;
+    glassCard.color.a = 0.6f;
+    glassCard.blurAmount = slider.value * 0.15f;
+
+    if (!hasPreviousGlassState ||
+        !FloatEq(previousGlassBlurAmount, glassCard.blurAmount) ||
+        !ColorEq(previousGlassColor, glassCard.color)) {
+        MarkPanelDirty(glassCard);
+        previousGlassBlurAmount = glassCard.blurAmount;
+        previousGlassColor = glassCard.color;
+        hasPreviousGlassState = true;
+    }
 }
 
 void MainPage::Draw() {
+    bgCircle1.Draw();
+    bgCircle2.Draw();
+    bgCircle3.Draw();
+
+    glassCard.Draw();
+
     titleLabel.Draw();
     btnPrimary.Draw();
     btnOutline.Draw();
@@ -86,7 +152,6 @@ void MainPage::Draw() {
     slider.Draw();
     segCtrl.Draw();
     inputBox.Draw();
-    // Dropdown drawn last to overlap other components
     comboBox.Draw();
 }
 

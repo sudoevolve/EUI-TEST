@@ -12,6 +12,7 @@ public:
     bool isFocused = false;
     float cursorBlinkTime = 0.0f;
     int cursorPosition = 0;
+    bool cursorVisible = true;
     
     float hoverAnim = 0.0f; // 0.0 -> 1.0 悬停动效
     float focusAnim = 0.0f; // 0.0 -> 1.0 聚焦动效

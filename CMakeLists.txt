@@ -20,6 +20,7 @@ FetchContent_Declare(
     URL https://github.com/glfw/glfw/archive/refs/tags/3.4.zip
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     TIMEOUT 30 # 设置30秒超时
+    TLS_VERIFY OFF # 解决 SSL 证书错误
 )
 
 # 强制 GLFW 构建为动态库 (DLL) 以节省内存
@@ -40,6 +41,7 @@ FetchContent_Declare(
     URL https://github.com/libigl/libigl-glad/archive/refs/heads/master.zip
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     TIMEOUT 30 # 设置30秒超时
+    TLS_VERIFY OFF # 解决 SSL 证书错误
 )
 FetchContent_MakeAvailable(glad)
 
@@ -50,8 +52,8 @@ find_package(OpenGL REQUIRED)
 include_directories(src)
 include_directories(third_party)
 
-# 自动收集 src 下的所有 cpp 文件 (包含所有组件如 InputBox, ComboBox 等)
-file(GLOB_RECURSE SRC_FILES "src/*.cpp")
+# 自动收集 src 下的所有 cpp 文件 (包含所有组件如 InputBox, ComboBox, Panel 等)
+file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS "src/*.cpp")
 
 # 添加可执行文件 (加入 EUINEO 和各个组件、页面)
 add_executable(eui_neo main.cpp ${SRC_FILES})
