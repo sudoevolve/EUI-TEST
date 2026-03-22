@@ -1,57 +1,88 @@
 # EUI-NEO
 
-EUI-NEO 是一个基于 OpenGL 的轻量 2D GUI 框架。当前这套渲染模型的核心不是“每个组件各画各的”，而是用少量基础图元统一搭建页面、组件、动画和局部重绘。
+EUI-NEO 是一个基于 OpenGL 的声明式 2D GUI 框架。当前版本的核心方向是：
+
+- 页面层只写 `ui.begin()` 之后的链式声明。
+- 组件定义收敛到 `src/components`，一个组件一个 `.h`。
+- `UIContext` 只做节点生命周期和组合调度，不做每组件的专用分发。
 
 <p align="center">
   <img src="./1.jpg" alt="EUI-NEO Preview 1" width="49%" />
   <img src="./2.jpg" alt="EUI-NEO Preview 2" width="49%" />
 </p>
 
-## 结构
+## 目录
 
 ```text
 EUI-NEO/
 ├─ main.cpp
 ├─ README.md
-├─ font/
+├─ ui_dsl_analysis.md
+├─ ui_dsl_guardrails.md
 ├─ src/
 │  ├─ EUINEO.h
 │  ├─ EUINEO.cpp
 │  ├─ components/
-│  │  ├─ Panel.*
-│  │  ├─ Label.*
-│  │  ├─ Button.*
-│  │  ├─ ProgressBar.*
-│  │  ├─ Slider.*
-│  │  ├─ SegmentedControl.*
-│  │  ├─ InputBox.*
-│  │  └─ ComboBox.*
-│  └─ pages/
-│     └─ MainPage.*
+│  │  ├─ Button.h
+│  │  ├─ ComboBox.h
+│  │  ├─ InputBox.h
+│  │  ├─ Label.h
+│  │  ├─ Panel.h
+│  │  ├─ ProgressBar.h
+│  │  ├─ SegmentedControl.h
+│  │  ├─ Sidebar.h
+│  │  ├─ Slider.h
+│  │  └─ CustomNodeTemplate.h
+│  ├─ pages/
+│  │  ├─ MainPage.h
+│  │  ├─ AnimationPage.h
+│  │  └─ MainPageView.h
+│  └─ ui/
+│     ├─ UIBuilder.h
+│     ├─ UIComponents.def
+│     ├─ UIContext.h
+│     ├─ UIContext.cpp
+│     ├─ UINode.h
+│     ├─ UIPrimitive.h
+│     └─ UIPrimitive.cpp
 └─ CMakeLists.txt
 ```
 
-- `main.cpp`：窗口创建、输入回调、主循环、帧缓存回放、局部重绘调度。
-- `src/EUINEO.h` / `src/EUINEO.cpp`：全局状态、渲染器、基础图元、文本绘制、脏区系统、动画轨道。
-- `src/components/`：通用组件层，负责交互和组合基础图元。
-- `src/pages/`：页面层，负责摆放组件、推进页面状态、控制绘制顺序。
-- `font/`：运行时加载的字体资源。
+## 当前架构
 
-## 用法
+- `main.cpp`
+  负责窗口、输入、主循环和绘制驱动。
+- `src/ui`
+  负责 `UINode`、通用 builder、节点树、clip、primitive 几何和脏区工具。
+- `src/components`
+  每个组件自己定义 `Node / Builder / runtime state / update / draw`。
+- `src/pages`
+  页面按 header-only 方式组合组件。
 
-### 编译
+当前内置组件：
+
+- `panel`
+- `glassPanel`
+- `label`
+- `button`
+- `progress`
+- `slider`
+- `combo`
+- `input`
+- `segmented`
+- `sidebar`
+
+## 编译
 
 ```bash
 cmake -B build -G Ninja
 cmake --build build --config Release
 ```
 
-### 运行结构
-
-项目当前采用“页面对象 + 主循环”的方式运行：
+## 运行方式
 
 ```cpp
-EUINEO::MainPage mainPage;
+EUINEO::MainPage mainPage{};
 
 while (!glfwWindowShouldClose(window)) {
     mainPage.Update();
@@ -63,211 +94,96 @@ while (!glfwWindowShouldClose(window)) {
 }
 ```
 
-### 字体加载
+## 页面 DSL 示例
+
+页面层的目标就是下面这种写法：
 
 ```cpp
-EUINEO::Renderer::LoadFont("font/your-font.ttf", 24.0f);
+ui.begin("main");
+
+ui.sidebar("sidebar")
+    .position(22.0f, 22.0f)
+    .size(86.0f, State.screenH - 44.0f)
+    .width(60.0f, 86.0f)
+    .brand("EUI", "NEO")
+    .item("\xef\x80\x95", "Home", [this] { SwitchView(MainPageView::Home); })
+    .item("\xef\x81\x8b", "Animation", [this] { SwitchView(MainPageView::Animation); })
+    .themeToggle([this] { ToggleTheme(); })
+    .build();
+
+ui.button("home.primary")
+    .text("Primary")
+    .position(220.0f, 84.0f)
+    .style(EUINEO::ButtonStyle::Primary)
+    .onClick([this] { progressValue_ += 0.1f; })
+    .build();
+
+ui.end();
 ```
 
-## 性能优化
+真实示例见：
 
-当前性能优化目标是：
+- `src/pages/MainPage.h`
+- `src/pages/AnimationPage.h`
 
-- 不降帧。
-- 不牺牲现有效果。
-- 不改变现有模糊公式。
-- 优先减少无意义重绘和重复 blur。
+## 自定义组件接入
 
-### 已接入的优化点
+### 方式 1：直接用 `ui.node<T>()`
 
-- 局部重绘：组件变化只上报自己的 dirty rect，不默认整页重绘。
-- 脏区合并：同一帧多个组件变化会被合并成一个绘制区域。
-- 帧缓存回放：局部刷新时先回放上一帧，再补画 dirty 区域。
-- backdrop 缓存：背景未失效时，blur 宿主不会重复抓整屏背景。
-- blur 结果缓存：相同 blur 面板在 backdrop 不变时直接复用缓存纹理。
-- 图元提交裁剪：`DrawRect` 和 `DrawTextStr` 会先判断是否与当前 dirty 区相交。
-- 事件驱动刷新：没有动画和脏区时，不会持续空转重绘。
-
-### 什么时候应该只打局部脏区
-
-- 按钮 hover。
-- 下拉项 hover。
-- 输入框 focus。
-- 光标闪烁。
-- 进度条数值变化。
-- 滑条拖动。
-- 文本内容变化但范围可控。
-
-### 什么时候应该失效 backdrop 或整屏
-
-- 窗口尺寸变化。
-- 背景层变化。
-- 主题切换导致背景视觉变化。
-- blur 宿主依赖的背景内容发生变化。
-- 明确需要整页刷新。
-
-## 优化的绘制方式
-
-当前绘制流程不是“交互一次就整页重画一次”，而是：
-
-1. 组件在 `Update()` 中判断自身状态是否发生变化。
-2. 有变化时通过 `MarkDirty(...)` 或 `Renderer::AddDirtyRect(...)` 上报脏区。
-3. 主循环根据 dirty 状态决定做全屏重绘还是局部重绘。
-4. 局部重绘时先回放上一帧缓存。
-5. 再只清理并重画 dirty 区域。
-6. 重画完成后，把新结果写回缓存。
-
-这也是交互时 GPU 占用能压下来的前提。组件开发时，最重要的是不要把小变化扩散成整页失效。
-
-## 基础图元 API
-
-当前真正的基础图元核心只有两类：
-
-- `Renderer::DrawRect(...)`
-- `Renderer::DrawTextStr(...)`
-
-圆、圆角卡片、滑块轨道、按钮底板、输入框底板、本质上都属于矩形图元的派生用法，不是单独维护一套渲染路径。
-
-### 基础数据结构
+如果你只是自己写一个组件，不想再写一套专用 DSL 入口，直接用泛型节点入口：
 
 ```cpp
-struct Color {
-    float r, g, b, a;
-};
-
-struct RectGradient {
-    bool enabled;
-    Color topLeft;
-    Color topRight;
-    Color bottomLeft;
-    Color bottomRight;
-};
-
-struct RectTransform {
-    float translateX;
-    float translateY;
-    float scaleX;
-    float scaleY;
-    float rotationDegrees;
-};
-
-struct RectStyle {
-    Color color;
-    RectGradient gradient;
-    float rounding;
-    float blurAmount;
-    float shadowBlur;
-    float shadowOffsetX;
-    float shadowOffsetY;
-    Color shadowColor;
-    RectTransform transform;
-};
+ui.node<EUINEO::TemplateCardNode>("stats.cpu")
+    .position(120.0f, 80.0f)
+    .size(220.0f, 96.0f)
+    .call(&EUINEO::TemplateCardNode::setTitle, std::string("CPU"))
+    .call(&EUINEO::TemplateCardNode::setValue, std::string("42%"))
+    .call(&EUINEO::TemplateCardNode::setAccent, EUINEO::Color(0.30f, 0.65f, 1.0f, 1.0f))
+    .build();
 ```
 
-### 矩形绘制
+这个路径不需要改 `UIContext`。
+
+### 方式 2：需要更顺手的 DSL 名字时，再注册别名
+
+如果你希望最后写成 `ui.myCard("...")`，只需要在 `src/ui/UIComponents.def` 里补一行：
 
 ```cpp
-Renderer::DrawRect(float x, float y, float w, float h, const RectStyle& style);
-
-Renderer::DrawRect(
-    float x, float y, float w, float h,
-    const Color& color,
-    float rounding = 0.0f,
-    float blurAmount = 0.0f,
-    float shadowBlur = 0.0f,
-    float shadowOffsetX = 0.0f,
-    float shadowOffsetY = 0.0f,
-    const Color& shadowColor = Color(0, 0, 0, 0)
-);
+EUI_UI_COMPONENT(myCard, MyCardNode)
 ```
 
-### 文字绘制
+这一步只是给 `UIContext` 增加一个别名函数，不应该引入：
+
+- 专用 `switch`
+- 专用 `map`
+- 专用 `SyncXxx`
+- 专用 `DrawXxx`
+- 专用 `UpdateXxx`
+
+## 组件开发守则
+
+自定义组件现在遵循这套规则：
+
+- 组件统一继承 `UINode`。
+- 一个组件的 `Node / Builder / state / update / draw` 放在同一个 `.h`。
+- 命中检测用 `PrimitiveContains(...)`。
+- 绝对坐标用 `PrimitiveFrame(...)`。
+- 视觉样式用 `MakeStyle(...)` 和 `ApplyOpacity(...)`。
+- 局部刷新优先走 `MarkPrimitiveDirty(...)` 或手工 `Renderer::AddDirtyRect(...)`。
+- 需要局部裁剪时用 `PrimitiveClipScope`。
+
+### 通用 primitive helper
 
 ```cpp
-Renderer::DrawTextStr(
-    const std::string& text,
-    float x,
-    float y,
-    const Color& color,
-    float scale = 1.0f
-);
-
-Renderer::MeasureTextWidth(const std::string& text, float scale = 1.0f);
-Renderer::LoadFont(const std::string& fontPath, float fontSize = 24.0f,
-                   unsigned int startChar = 32, unsigned int endChar = 128);
+RectFrame PrimitiveFrame(const UIPrimitive& primitive);
+bool PrimitiveContains(const UIPrimitive& primitive, float x, float y);
+RectStyle MakeStyle(const UIPrimitive& primitive);
+Color ApplyOpacity(Color color, float opacity);
+void MarkPrimitiveDirty(const UIPrimitive& primitive, const RectStyle& style,
+                        float expand = 0.0f, float duration = 0.0f);
 ```
 
-### 重绘与边界
-
-```cpp
-Renderer::MeasureRectBounds(float x, float y, float w, float h, const RectStyle& style);
-Renderer::RequestRepaint(float duration = 0.0f);
-Renderer::AddDirtyRect(float x, float y, float w, float h);
-Renderer::InvalidateAll();
-Renderer::InvalidateBackdrop();
-```
-
-### Widget 基础能力
-
-```cpp
-GetAbsoluteBounds(float& outX, float& outY);
-IsHovered();
-MarkDirty(const RectStyle& style, float expand = 0.0f, float duration = 0.0f);
-MarkDirty(float expand = 20.0f, float duration = 0.0f);
-```
-
-## DrawRect 的基础属性
-
- `DrawRect` 已经有这些基础能力：
-
-- 透明：`RectStyle.color.a`
-- 渐变：`RectStyle.gradient`
-- 整体缩放：`RectStyle.transform.scaleX` 和 `scaleY`
-- 轴向缩放：只改 `scaleX` 或只改 `scaleY`
-- 平移：`RectStyle.transform.translateX` 和 `translateY`
-- 旋转：`RectStyle.transform.rotationDegrees`
-
-### 透明与渐变的关系
-
-- `gradient.enabled == false` 时，矩形直接使用 `style.color`。
-- `gradient.enabled == true` 时，矩形 RGB 使用渐变角颜色。
-- `style.color.a` 会作为整体透明度乘到渐变结果上。
-
-也就是：
-
-- 想改纯色透明，改 `style.color.a`
-- 想改渐变透明，改角颜色 alpha，或者同时改 `style.color.a`
-
-### 渐变辅助 API
-
-```cpp
-RectGradient::Solid(color);
-RectGradient::Horizontal(left, right);
-RectGradient::Vertical(top, bottom);
-RectGradient::Corners(topLeft, topRight, bottomLeft, bottomRight);
-```
-
-### 基础写法
-
-```cpp
-EUINEO::RectStyle style;
-style.color = EUINEO::Color(1.0f, 1.0f, 1.0f, 0.88f);
-style.gradient = EUINEO::RectGradient::Vertical(
-    EUINEO::Color(1.0f, 1.0f, 1.0f, 1.0f),
-    EUINEO::Color(0.78f, 0.88f, 1.0f, 0.55f)
-);
-style.rounding = 16.0f;
-style.transform.scaleX = 1.0f;
-style.transform.scaleY = 1.0f;
-
-EUINEO::Renderer::DrawRect(x, y, w, h, style);
-```
-
-## 动画写法
-
-当前动画层是“属性轨道”模型，核心是把某个属性从一个值过渡到另一个值。
-
-### 可直接使用的动画轨道
+### 动画轨道
 
 ```cpp
 using FloatAnimation = PropertyAnimation<float>;
@@ -275,282 +191,44 @@ using ColorAnimation = PropertyAnimation<Color>;
 using GradientAnimation = PropertyAnimation<RectGradient>;
 using TransformAnimation = PropertyAnimation<RectTransform>;
 using RectStyleAnimation = PropertyAnimation<RectStyle>;
+using RectFrameAnimation = PropertyAnimation<RectFrame>;
 ```
 
-### 缓动
+## 自定义组件模板
+
+仓库里已经放了一个可复制模板：
+
+- `src/components/CustomNodeTemplate.h`
+
+这个模板刻意用 `ui.node<T>()` 路径，不强迫你先写专用 builder。适合先把组件做出来，后面再决定要不要注册 `ui.xxx()` 别名。
+
+模板用法：
+
+1. 复制 `src/components/CustomNodeTemplate.h`
+2. 改类名和 `StaticTypeName()`
+3. 按自己的业务改 setter、状态和 `draw()`
+4. 页面里先直接用 `ui.node<YourNode>()`
+5. 只有你真的想要 `ui.yourNode()` 时，再改 `UIComponents.def`
+
+## 页面开发守则
+
+- 一个页面尽量就是一个 `.h`。
+- 页面里只保留状态、布局计算和 `ui.begin()/ui.end()` 之间的声明。
+- 不在页面里回流到旧式控件实例管理。
+- 不在页面里写每组件独立的绘制系统。
+
+## 字体
 
 ```cpp
-Easing::Linear
-Easing::EaseIn
-Easing::EaseOut
-Easing::EaseInOut
+EUINEO::Renderer::LoadFont("font/your-font.ttf", 24.0f);
 ```
 
-### 单属性动画
+## 相关文档
 
-适合只动一个值，比如轴向缩放：
+- `ui_dsl_analysis.md`
+- `ui_dsl_guardrails.md`
 
-```cpp
-EUINEO::FloatAnimation scaleXAnim;
-scaleXAnim.Bind(&style.transform.scaleX);
+这两个文档约束的是同一件事：
 
-scaleXAnim.PlayTo(1.16f, 0.14f, EUINEO::Easing::EaseOut);
-scaleXAnim.Queue(1.00f, 0.18f, EUINEO::Easing::EaseInOut);
-```
-
-### 组合动画
-
-如果你希望一次把透明、渐变、平移、旋转、缩放一起做掉，直接动画整个 `RectStyle`：
-
-```cpp
-EUINEO::RectStyle restStyle;
-restStyle.color = EUINEO::Color(1.0f, 1.0f, 1.0f, 0.82f);
-restStyle.gradient = EUINEO::RectGradient::Vertical(
-    EUINEO::Color(1.0f, 1.0f, 1.0f, 1.0f),
-    EUINEO::Color(0.78f, 0.88f, 1.0f, 0.42f)
-);
-restStyle.rounding = 18.0f;
-
-EUINEO::RectStyle hoverStyle = restStyle;
-hoverStyle.color.a = 0.98f;
-hoverStyle.transform.translateY = -6.0f;
-hoverStyle.transform.scaleX = 1.04f;
-hoverStyle.transform.scaleY = 1.04f;
-hoverStyle.transform.rotationDegrees = 2.0f;
-hoverStyle.gradient = EUINEO::RectGradient::Vertical(
-    EUINEO::Color(1.0f, 1.0f, 1.0f, 1.0f),
-    EUINEO::Color(0.55f, 0.78f, 1.0f, 0.68f)
-);
-
-EUINEO::RectStyle currentStyle = restStyle;
-EUINEO::RectStyleAnimation styleAnim;
-styleAnim.Bind(&currentStyle);
-
-styleAnim.PlayTo(hoverStyle, 0.18f, EUINEO::Easing::EaseOut);
-```
-
-### 队列动画
-
-同一个轨道可以直接排队：
-
-```cpp
-styleAnim.PlayTo(hoverStyle, 0.12f, EUINEO::Easing::EaseOut);
-styleAnim.Queue(restStyle, 0.18f, EUINEO::Easing::EaseInOut);
-```
-
-### 在 Update 里推进动画
-
-```cpp
-if (styleAnim.Update(EUINEO::State.deltaTime)) {
-    MarkDirty(currentStyle, 8.0f);
-}
-```
-
-### 直接动画 Panel
-
-`Panel` 现在提供了样式读写入口，方便做样式动画：
-
-```cpp
-EUINEO::Panel card(0, 0, 220, 120);
-EUINEO::RectStyle currentStyle = card.GetStyle();
-EUINEO::RectStyleAnimation styleAnim;
-styleAnim.Bind(&currentStyle);
-
-if (styleAnim.Update(EUINEO::State.deltaTime)) {
-    card.SetStyle(currentStyle);
-    card.MarkDirty(8.0f);
-}
-```
-
-## 绘制组件
-
-组件层的职责不是“重新发明一种渲染方式”，而是组合基础图元、处理输入、推进动画。
-
-### 用户自定义组件开发标准
-
-- 必须继承 `Widget`。
-- `Update()` 只处理输入、状态和动画推进。
-- `Draw()` 只负责绘制，不在 `Draw()` 里改状态。
-- 一律先通过 `GetAbsoluteBounds()` 计算绝对坐标。
-- 小变化优先走 `MarkDirty(...)`，不要动不动全屏失效。
-- hover、focus、输入、滑条拖动，不要直接 `InvalidateAll()`。
-- 只有背景真的变了，才调用 `InvalidateBackdrop()`。
-- 如果组件使用了 `RectStyle.transform`、阴影或 blur，脏区要走 `MarkDirty(style, ...)` 或 `MeasureRectBounds(...)`。
-- 文本缩放统一走 `fontSize / 24.0f` 这种比例，不要每个组件自己发明一套字体尺寸逻辑。
-
-### 自定义组件模板
-
-```cpp
-class MyCard : public EUINEO::Widget {
-public:
-    EUINEO::RectStyle style;
-    EUINEO::RectStyle restStyle;
-    EUINEO::RectStyle hoverStyle;
-    EUINEO::RectStyleAnimation anim;
-    bool hovered = false;
-
-    MyCard(float x, float y, float w, float h) {
-        this->x = x;
-        this->y = y;
-        this->width = w;
-        this->height = h;
-
-        restStyle.color = EUINEO::Color(0.16f, 0.18f, 0.22f, 0.82f);
-        restStyle.gradient = EUINEO::RectGradient::Vertical(
-            EUINEO::Color(0.26f, 0.30f, 0.38f, 1.0f),
-            EUINEO::Color(0.16f, 0.18f, 0.22f, 0.72f)
-        );
-        restStyle.rounding = 16.0f;
-
-        hoverStyle = restStyle;
-        hoverStyle.color.a = 1.0f;
-        hoverStyle.transform.translateY = -4.0f;
-        hoverStyle.transform.scaleX = 1.03f;
-        hoverStyle.transform.scaleY = 1.03f;
-
-        style = restStyle;
-        anim.Bind(&style);
-    }
-
-    void Update() override {
-        bool nowHovered = IsHovered();
-        if (nowHovered != hovered) {
-            hovered = nowHovered;
-            anim.PlayTo(hovered ? hoverStyle : restStyle,
-                        hovered ? 0.16f : 0.20f,
-                        hovered ? EUINEO::Easing::EaseOut : EUINEO::Easing::EaseInOut);
-        }
-
-        if (anim.Update(EUINEO::State.deltaTime)) {
-            MarkDirty(style, 8.0f);
-        }
-    }
-
-    void Draw() override {
-        float absX = 0.0f;
-        float absY = 0.0f;
-        GetAbsoluteBounds(absX, absY);
-        EUINEO::Renderer::DrawRect(absX, absY, width, height, style);
-    }
-};
-```
-
-### 当前内置组件如何由基础图元构成
-
-- `Panel`：单层矩形 / 圆角面板 / 玻璃卡片。
-- `Button`：背景矩形 + 文本。
-- `ProgressBar`：轨道矩形 + 进度矩形。
-- `Slider`：轨道矩形 + 已完成区间 + 手柄。
-- `SegmentedControl`：底板 + 指示器 + 文本。
-- `InputBox`：底板 + 顶部边线/焦点线 + 文本 + 光标。
-- `ComboBox`：主框 + 列表面板 + 列表项。
-
-## 绘制页面
-
-页面层负责组织组件，不负责重新实现图元。
-
-### 页面开发标准
-
-- 构造函数中完成组件实例化和回调绑定。
-- `Update()` 中推进页面状态，并依次调用子组件 `Update()`。
-- `Draw()` 中按层级顺序绘制。
-- 保持背景层、内容层、浮层的顺序稳定。
-
-### 页面结构示例
-
-```cpp
-class MainPage {
-public:
-    Panel backgroundPanel;
-    Panel glassCard;
-    Label titleLabel;
-    Button btnPrimary;
-    InputBox inputBox;
-    ComboBox comboBox;
-
-    MainPage();
-    void Update();
-    void Draw();
-};
-```
-
-### 页面绘制顺序示例
-
-```cpp
-void MainPage::Draw() {
-    backgroundPanel.Draw();
-    glassCard.Draw();
-
-    titleLabel.Draw();
-    btnPrimary.Draw();
-    inputBox.Draw();
-    comboBox.Draw();
-}
-```
-
-推荐顺序：
-
-- 背景
-- 装饰层
-- 玻璃或面板容器
-- 常规交互组件
-- 浮层、下拉层、弹出层
-
-## 布局用法
-
-当前项目用 `Anchor` 做轻量布局。
-
-### 可用锚点
-
-```cpp
-Anchor::TopLeft
-Anchor::TopCenter
-Anchor::TopRight
-Anchor::CenterLeft
-Anchor::Center
-Anchor::CenterRight
-Anchor::BottomLeft
-Anchor::BottomCenter
-Anchor::BottomRight
-```
-
-### 基本用法
-
-```cpp
-EUINEO::Button btn("Start", 0, 50, 120, 40);
-btn.anchor = EUINEO::Anchor::TopCenter;
-```
-
-这表示：
-
-- 逻辑位置是 `(0, 50)`
-- 这个偏移不是相对左上角
-- 而是相对顶部居中锚点
-
-### 布局计算入口
-
-所有组件最终都通过：
-
-```cpp
-GetAbsoluteBounds(absX, absY);
-```
-
-把锚点相对坐标转换成真实屏幕坐标。
-
-### 布局建议
-
-- 页面级大布局优先用 `Anchor`。
-- 组件内部微调用局部偏移。
-- 不要在每个组件里手写一套屏幕对齐逻辑。
-- 窗口尺寸变化后，依赖 `GetAbsoluteBounds()` 自动重算位置。
-
-## 当前内置组件
-
-- `Panel`
-- `Label`
-- `Button`
-- `ProgressBar`
-- `Slider`
-- `SegmentedControl`
-- `InputBox`
-- `ComboBox`
+- 新组件不应该迫使开发者去修改核心调度层。
+- DSL 页面的目标是声明式组合

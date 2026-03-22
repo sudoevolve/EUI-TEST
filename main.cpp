@@ -27,6 +27,7 @@ struct FrameCache {
 
 static FrameCache gFrameCache;
 static constexpr bool kReuseSwapBackBufferForPartialRedraw = false;
+static constexpr bool kEnablePartialRedraw = false;
 
 static GLuint CompileFrameCacheShader(GLenum type, const char* source) {
     GLuint shader = glCreateShader(type);
@@ -358,7 +359,7 @@ int main() {
 
     EUINEO::Renderer::LoadFont("C:/Windows/Fonts/msyh.ttc", 24.0f, 0x4E00, 0xA000);
 
-    EUINEO::MainPage mainPage;
+    EUINEO::MainPage mainPage{}; // Force recompilation when header-only pages change.
     double lastTime = glfwGetTime();
 
     while (!glfwWindowShouldClose(window)) {
@@ -405,14 +406,18 @@ int main() {
         if (shouldDraw) {
             EUINEO::Color bg = EUINEO::CurrentTheme->background;
             bool hasDirtyRect = EUINEO::State.dirtyX2 > EUINEO::State.dirtyX1 && EUINEO::State.dirtyY2 > EUINEO::State.dirtyY1;
-            bool canSkipRender = !EUINEO::State.fullScreenDirty && gFrameCache.hasCache && !hasDirtyRect;
+            bool animationFrame = EUINEO::State.animationTimeLeft > 0.0f;
+            bool canSkipRender = !EUINEO::State.fullScreenDirty && gFrameCache.hasCache && !hasDirtyRect && !animationFrame;
 
             if (canSkipRender) {
                 EUINEO::Renderer::SetFullRedraw();
                 EUINEO::Renderer::ClearDirtyRect();
             } else {
                 EUINEO::State.frameCount++;
-                bool useFullRedraw = EUINEO::State.fullScreenDirty || !gFrameCache.hasCache || !hasDirtyRect;
+                bool useFullRedraw = !kEnablePartialRedraw ||
+                                     EUINEO::State.fullScreenDirty ||
+                                     !gFrameCache.hasCache ||
+                                     !hasDirtyRect;
 
                 if (useFullRedraw) {
                     EUINEO::Renderer::SetFullRedraw();

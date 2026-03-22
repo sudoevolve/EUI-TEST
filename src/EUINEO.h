@@ -330,25 +330,4 @@ enum class Anchor {
     BottomLeft, BottomCenter, BottomRight
 };
 
-class Widget {
-public:
-    float x = 0.0f;
-    float y = 0.0f;
-    float width = 100.0f;
-    float height = 30.0f;
-    Anchor anchor = Anchor::TopLeft;
-    float fontSize = 24.0f;
-
-    virtual ~Widget() = default;
-    virtual void Update() {}
-    virtual void Draw() {}
-
-    void GetAbsoluteBounds(float& outX, float& outY);
-    bool IsHovered();
-    void MarkDirty(const RectStyle& style, float expand = 0.0f, float duration = 0.0f);
-    void MarkDirty(const RectStyle& fromStyle, const RectStyle& toStyle, float expand = 0.0f,
-                   float duration = 0.0f);
-    void MarkDirty(float expand = 20.0f, float duration = 0.0f);
-};
-
 } // namespace EUINEO
