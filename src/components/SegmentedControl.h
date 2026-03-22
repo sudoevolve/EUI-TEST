@@ -74,7 +74,7 @@ public:
             if (onChange_) {
                 onChange_(selectedIndex_);
             }
-            markDirty(4.0f);
+            requestRepaint(4.0f);
         }
 
         const float targetAnim = static_cast<float>(clampedSelected);
@@ -83,7 +83,7 @@ public:
             if (std::abs(indicatorAnim_ - targetAnim) < 0.001f) {
                 indicatorAnim_ = targetAnim;
             }
-            markDirty(4.0f);
+            requestRepaint(4.0f);
         }
     }
 
@@ -127,8 +127,8 @@ protected:
     }
 
 private:
-    void markDirty(float expand = 4.0f, float duration = 0.0f) {
-        MarkPrimitiveDirty(primitive_, MakeStyle(primitive_), expand, duration);
+    void requestRepaint(float expand = 4.0f, float duration = 0.0f) {
+        RequestPrimitiveRepaint(primitive_, MakeStyle(primitive_), expand, duration);
     }
 
     std::vector<std::string> items_;

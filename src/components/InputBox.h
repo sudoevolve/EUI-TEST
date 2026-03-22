@@ -61,7 +61,7 @@ public:
 
         if (!primitive_.enabled && isFocused_) {
             isFocused_ = false;
-            markDirty(4.0f);
+            requestRepaint(4.0f);
         }
 
         const float targetHover = hovered ? 1.0f : 0.0f;
@@ -70,7 +70,7 @@ public:
             if (std::abs(hoverAnim_ - targetHover) < 0.01f) {
                 hoverAnim_ = targetHover;
             }
-            markDirty(4.0f);
+            requestRepaint(4.0f);
         }
 
         const float targetFocus = isFocused_ ? 1.0f : 0.0f;
@@ -79,7 +79,7 @@ public:
             if (std::abs(focusAnim_ - targetFocus) < 0.01f) {
                 focusAnim_ = targetFocus;
             }
-            markDirty(4.0f);
+            requestRepaint(4.0f);
         }
 
         if (State.mouseClicked) {
@@ -88,7 +88,7 @@ public:
                 isFocused_ = nextFocus;
                 cursorBlinkTime_ = 0.0f;
                 cursorVisible_ = true;
-                markDirty(4.0f);
+                requestRepaint(4.0f);
             }
         }
 
@@ -101,7 +101,7 @@ public:
             const bool nextCursorVisible = cursorBlinkTime_ < 0.5f;
             if (cursorVisible_ != nextCursorVisible) {
                 cursorVisible_ = nextCursorVisible;
-                markDirty(4.0f);
+                requestRepaint(4.0f);
             }
 
             if (!State.textInput.empty()) {
@@ -112,7 +112,7 @@ public:
                 if (onChange_) {
                     onChange_(text_);
                 }
-                markDirty(4.0f);
+                requestRepaint(4.0f);
             }
 
             if (State.keysPressed[GLFW_KEY_BACKSPACE] && !text_.empty()) {
@@ -128,14 +128,14 @@ public:
                 if (onChange_) {
                     onChange_(text_);
                 }
-                markDirty(4.0f);
+                requestRepaint(4.0f);
             }
 
             if (State.keysPressed[GLFW_KEY_ENTER] || State.keysPressed[GLFW_KEY_KP_ENTER]) {
                 if (onEnter_) {
                     onEnter_();
                 }
-                markDirty(4.0f);
+                requestRepaint(4.0f);
             }
         } else {
             cursorBlinkTime_ = 0.0f;
@@ -201,8 +201,8 @@ protected:
     }
 
 private:
-    void markDirty(float expand = 4.0f, float duration = 0.0f) {
-        MarkPrimitiveDirty(primitive_, MakeStyle(primitive_), expand, duration);
+    void requestRepaint(float expand = 4.0f, float duration = 0.0f) {
+        RequestPrimitiveRepaint(primitive_, MakeStyle(primitive_), expand, duration);
     }
 
     std::string placeholder_;

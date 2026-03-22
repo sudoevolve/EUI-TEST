@@ -53,8 +53,8 @@ RectTransform MakeTransform(const UIPrimitive& primitive);
 RectStyle MakeStyle(const UIPrimitive& primitive);
 RectFrame PrimitiveFrame(const UIPrimitive& primitive);
 bool PrimitiveContains(const UIPrimitive& primitive, float x, float y);
-void MarkPrimitiveDirty(const UIPrimitive& primitive, const RectStyle& style,
-                        float expand = 0.0f, float duration = 0.0f);
+void RequestPrimitiveRepaint(const UIPrimitive& primitive, const RectStyle& style,
+                             float expand = 0.0f, float duration = 0.0f);
 
 class PrimitiveClipScope {
 public:

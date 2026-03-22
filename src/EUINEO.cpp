@@ -238,14 +238,9 @@ static RectTransform CachedBlurTransform;
 static RectGradient CachedBlurGradient;
 static unsigned int BackdropVersion = 1;
 static unsigned int CachedBackdropVersion = 0;
-static bool ActiveRedrawClipEnabled = false;
-static float ActiveRedrawX1 = 0.0f;
-static float ActiveRedrawY1 = 0.0f;
-static float ActiveRedrawX2 = 0.0f;
-static float ActiveRedrawY2 = 0.0f;
 static int BgTextureW = 0;
 static int BgTextureH = 0;
-static bool BackdropDirty = true;
+static bool BackdropCapturePending = true;
 
 static const char* vShaderStr = R"(
 #version 330 core
@@ -547,28 +542,6 @@ static RectBounds ComputeRectBounds(float x, float y, float w, float h, const Re
     return out;
 }
 
-static bool RectIntersectsActiveRedraw(float x, float y, float w, float h) {
-    if (!ActiveRedrawClipEnabled) {
-        return true;
-    }
-    return w > 0.0f && h > 0.0f &&
-        x < ActiveRedrawX2 &&
-        x + w > ActiveRedrawX1 &&
-        y < ActiveRedrawY2 &&
-        y + h > ActiveRedrawY1;
-}
-
-static bool RectFullyCoveredByActiveRedraw(float x, float y, float w, float h) {
-    if (!ActiveRedrawClipEnabled) {
-        return true;
-    }
-    return w > 0.0f && h > 0.0f &&
-        x >= ActiveRedrawX1 &&
-        y >= ActiveRedrawY1 &&
-        x + w <= ActiveRedrawX2 &&
-        y + h <= ActiveRedrawY2;
-}
-
 static void EnsureCachedBlurTexture(int width, int height) {
     width = std::max(width, 1);
     height = std::max(height, 1);
@@ -795,33 +768,12 @@ void Renderer::BeginFrame() {
     glDisable(GL_DEPTH_TEST);
 }
 
-void Renderer::SetFullRedraw() {
-    ActiveRedrawClipEnabled = false;
-    ActiveRedrawX1 = ActiveRedrawY1 = ActiveRedrawX2 = ActiveRedrawY2 = 0.0f;
-}
-
-void Renderer::SetPartialRedraw(float x1, float y1, float x2, float y2) {
-    if (x2 <= x1 || y2 <= y1) {
-        SetFullRedraw();
-        return;
-    }
-    ActiveRedrawClipEnabled = true;
-    ActiveRedrawX1 = x1;
-    ActiveRedrawY1 = y1;
-    ActiveRedrawX2 = x2;
-    ActiveRedrawY2 = y2;
-}
-
 RectBounds Renderer::MeasureRectBounds(float x, float y, float w, float h, const RectStyle& style) {
     return ComputeRectBounds(x, y, w, h, style);
 }
 
 void Renderer::DrawRect(float x, float y, float w, float h, const RectStyle& style) {
     RectBounds bounds = ComputeRectBounds(x, y, w, h, style);
-    if (!RectIntersectsActiveRedraw(bounds.x, bounds.y, bounds.w, bounds.h)) {
-        return;
-    }
-
     const bool canReuseBlurCache = CanReuseBlurCache(style);
     if (canReuseBlurCache && CachedBlurMatches(bounds.x, bounds.y, bounds.w, bounds.h, style)) {
         if (CurrentActiveProgram != CachedBlurProgram) {
@@ -906,8 +858,7 @@ void Renderer::DrawRect(float x, float y, float w, float h, const RectStyle& sty
         int copyW = copyRight - copyX;
         int copyH = copyBottom - copyYTop;
 
-        if (copyW > 0 && copyH > 0 &&
-            RectFullyCoveredByActiveRedraw((float)copyX, (float)copyYTop, (float)copyW, (float)copyH)) {
+        if (copyW > 0 && copyH > 0) {
             int copyY = std::max(0, (int)std::floor(State.screenH - (copyYTop + copyH)));
 
             EnsureCachedBlurTexture(copyW, copyH);
@@ -1024,52 +975,6 @@ void Renderer::DrawTextStr(const std::string& text, float x, float y, const Colo
         finalPivotY = boundsY + boundsH * 0.5f;
     }
 
-    float redrawX = boundsX;
-    float redrawY = boundsY;
-    float redrawW = boundsW;
-    float redrawH = boundsH;
-    if (std::abs(rotationDegrees) > 0.001f) {
-        const float radians = rotationDegrees * 0.017453292519943295f;
-        const float c = std::cos(radians);
-        const float s = std::sin(radians);
-        const float corners[4][2] = {
-            {boundsX, boundsY},
-            {boundsX + boundsW, boundsY},
-            {boundsX, boundsY + boundsH},
-            {boundsX + boundsW, boundsY + boundsH},
-        };
-
-        float minX = 0.0f;
-        float minY = 0.0f;
-        float maxX = 0.0f;
-        float maxY = 0.0f;
-        for (int cornerIndex = 0; cornerIndex < 4; ++cornerIndex) {
-            const float dx = corners[cornerIndex][0] - finalPivotX;
-            const float dy = corners[cornerIndex][1] - finalPivotY;
-            const float rotatedX = finalPivotX + dx * c - dy * s;
-            const float rotatedY = finalPivotY + dx * s + dy * c;
-
-            if (cornerIndex == 0) {
-                minX = maxX = rotatedX;
-                minY = maxY = rotatedY;
-            } else {
-                minX = std::min(minX, rotatedX);
-                minY = std::min(minY, rotatedY);
-                maxX = std::max(maxX, rotatedX);
-                maxY = std::max(maxY, rotatedY);
-            }
-        }
-
-        redrawX = minX;
-        redrawY = minY;
-        redrawW = maxX - minX;
-        redrawH = maxY - minY;
-    }
-
-    if (!RectIntersectsActiveRedraw(redrawX, redrawY, redrawW, redrawH)) {
-        return;
-    }
-
     if (CurrentActiveProgram != TextShaderProgram) {
         glUseProgram(TextShaderProgram);
         CurrentActiveProgram = TextShaderProgram;
@@ -1166,19 +1071,17 @@ void Renderer::RequestRepaint(float duration) {
 
 void Renderer::InvalidateAll() {
     State.needsRepaint = true;
-    State.fullScreenDirty = true;
 }
 
 void Renderer::InvalidateBackdrop() {
     ++BackdropVersion;
     BlurCacheValid = false;
-    BackdropDirty = true;
+    BackdropCapturePending = true;
     State.needsRepaint = true;
-    State.fullScreenDirty = true;
 }
 
 void Renderer::CaptureBackdrop() {
-    if (!BackdropDirty) {
+    if (!BackdropCapturePending) {
         return;
     }
 
@@ -1187,32 +1090,7 @@ void Renderer::CaptureBackdrop() {
     EnsureBackdropTexture(texW, texH);
     glBindTexture(GL_TEXTURE_2D, BgTexture);
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, texW, texH);
-    BackdropDirty = false;
-}
-
-void Renderer::AddDirtyRect(float x, float y, float w, float h) {
-    if (State.fullScreenDirty) return;
-
-    if (State.dirtyX1 == State.dirtyX2) {
-        State.dirtyX1 = x;
-        State.dirtyY1 = y;
-        State.dirtyX2 = x + w;
-        State.dirtyY2 = y + h;
-    } else {
-        State.dirtyX1 = std::min(State.dirtyX1, x);
-        State.dirtyY1 = std::min(State.dirtyY1, y);
-        State.dirtyX2 = std::max(State.dirtyX2, x + w);
-        State.dirtyY2 = std::max(State.dirtyY2, y + h);
-    }
-}
-
-void Renderer::ApplyScissor() {
-    glDisable(GL_SCISSOR_TEST);
-}
-
-void Renderer::ClearDirtyRect() {
-    State.fullScreenDirty = false;
-    State.dirtyX1 = State.dirtyY1 = State.dirtyX2 = State.dirtyY2 = 0;
+    BackdropCapturePending = false;
 }
 
 bool Renderer::ShouldRepaint() {

@@ -56,11 +56,11 @@ public:
         if (hovered != hovered_) {
             hovered_ = hovered;
             liftAnimation_.PlayTo(hovered ? 1.0f : 0.0f, 0.16f, hovered ? Easing::EaseOut : Easing::EaseInOut);
-            markDirty(12.0f, 0.18f);
+            requestRepaint(12.0f, 0.18f);
         }
 
         if (liftAnimation_.Update(State.deltaTime)) {
-            markDirty(12.0f, 0.18f);
+            requestRepaint(12.0f, 0.18f);
         }
     }
 
@@ -118,8 +118,8 @@ protected:
     }
 
 private:
-    void markDirty(float expand = 12.0f, float duration = 0.0f) {
-        MarkPrimitiveDirty(primitive_, MakeStyle(primitive_), expand, duration);
+    void requestRepaint(float expand = 12.0f, float duration = 0.0f) {
+        RequestPrimitiveRepaint(primitive_, MakeStyle(primitive_), expand, duration);
     }
 
     std::string title_;

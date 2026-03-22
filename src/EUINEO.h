@@ -282,12 +282,6 @@ struct UIState {
     bool needsRepaint = true;
     float animationTimeLeft = 0.0f;
     int frameCount = 0;
-
-    bool fullScreenDirty = true;
-    float dirtyX1 = 0.0f;
-    float dirtyY1 = 0.0f;
-    float dirtyX2 = 0.0f;
-    float dirtyY2 = 0.0f;
 };
 
 extern UIState State;
@@ -297,12 +291,6 @@ public:
     static void Init();
     static void Shutdown();
     static void BeginFrame();
-    static void SetFullRedraw();
-    static void SetPartialRedraw(float x1, float y1, float x2, float y2);
-
-    static void ApplyScissor();
-    static void ClearDirtyRect();
-    static void AddDirtyRect(float x, float y, float w, float h);
     static void InvalidateAll();
     static void InvalidateBackdrop();
     static void CaptureBackdrop();

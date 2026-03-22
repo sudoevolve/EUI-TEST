@@ -60,7 +60,7 @@ public:
             if (std::abs(hoverAnim_ - targetHover) < 0.001f) {
                 hoverAnim_ = targetHover;
             }
-            markDirty(6.0f);
+            requestRepaint(6.0f);
         }
 
         const float targetClick = (hovered && State.mouseDown) ? 1.0f : 0.0f;
@@ -69,12 +69,12 @@ public:
             if (std::abs(clickAnim_ - targetClick) < 0.001f) {
                 clickAnim_ = targetClick;
             }
-            markDirty(6.0f);
+            requestRepaint(6.0f);
         }
 
         if (hovered && State.mouseClicked && onClick_) {
             onClick_();
-            markDirty(6.0f, 0.2f);
+            requestRepaint(6.0f, 0.2f);
         }
     }
 
@@ -143,8 +143,8 @@ protected:
     }
 
 private:
-    void markDirty(float expand = 6.0f, float duration = 0.0f) {
-        MarkPrimitiveDirty(primitive_, MakeStyle(primitive_), expand, duration);
+    void requestRepaint(float expand = 6.0f, float duration = 0.0f) {
+        RequestPrimitiveRepaint(primitive_, MakeStyle(primitive_), expand, duration);
     }
 
     std::string text_;

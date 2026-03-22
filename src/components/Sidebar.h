@@ -116,8 +116,8 @@ private:
     RectFrame itemFrameFor(const RectFrame& shell, int index) const;
     RectFrame themeFrameFor(const RectFrame& shell) const;
 
-    void markDirty(float expand = 18.0f, float duration = 0.0f) {
-        MarkPrimitiveDirty(primitive_, MakeStyle(primitive_), expand, duration);
+    void requestRepaint(float expand = 18.0f, float duration = 0.0f) {
+        RequestPrimitiveRepaint(primitive_, MakeStyle(primitive_), expand, duration);
     }
 
     std::string brandPrimary_;
@@ -157,7 +157,7 @@ inline void SidebarNode::update() {
         if (std::abs(selectionAnim_ - targetSelection) < 0.01f) {
             selectionAnim_ = targetSelection;
         }
-        markDirty(24.0f, 0.18f);
+        requestRepaint(24.0f, 0.18f);
     }
 
     for (int index = 0; index < static_cast<int>(items_.size()); ++index) {
@@ -169,12 +169,12 @@ inline void SidebarNode::update() {
             if (std::abs(itemHover_[index] - targetHover) < 0.01f) {
                 itemHover_[index] = targetHover;
             }
-            markDirty(24.0f);
+            requestRepaint(24.0f);
         }
 
         if (hovered && State.mouseClicked && items_[index].onClick) {
             items_[index].onClick();
-            markDirty(24.0f, 0.18f);
+            requestRepaint(24.0f, 0.18f);
         }
     }
 
@@ -186,13 +186,13 @@ inline void SidebarNode::update() {
         if (std::abs(themeHover_ - targetThemeHover) < 0.01f) {
             themeHover_ = targetThemeHover;
         }
-        markDirty(24.0f);
+        requestRepaint(24.0f);
     }
 
     if (hoveredToggle && State.mouseClicked) {
         themePressed_ = true;
         themeRotationAnimation_.PlayTo(20.0f, 0.12f, Easing::EaseOut);
-        markDirty(24.0f, 0.18f);
+        requestRepaint(24.0f, 0.18f);
     }
 
     if (themePressed_ && !State.mouseDown) {
@@ -204,15 +204,15 @@ inline void SidebarNode::update() {
             onThemeToggle_();
             themeBlendAnimation_.PlayTo(CurrentTheme == &DarkTheme ? 0.0f : 1.0f, 0.18f, Easing::EaseInOut);
         }
-        markDirty(24.0f, 0.20f);
+        requestRepaint(24.0f, 0.20f);
     }
 
     if (themeRotationAnimation_.Update(State.deltaTime)) {
-        markDirty(24.0f, 0.18f);
+        requestRepaint(24.0f, 0.18f);
     }
 
     if (themeBlendAnimation_.Update(State.deltaTime)) {
-        markDirty(24.0f, 0.18f);
+        requestRepaint(24.0f, 0.18f);
     }
 }
 

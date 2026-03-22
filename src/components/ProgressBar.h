@@ -38,7 +38,7 @@ public:
         }
         if (std::abs(animatedValue_ - targetValue) > 0.001f) {
             animatedValue_ = Lerp(animatedValue_, targetValue, 10.0f * State.deltaTime);
-            markDirty(2.0f);
+            requestRepaint(2.0f);
         }
     }
 
@@ -77,8 +77,8 @@ protected:
     }
 
 private:
-    void markDirty(float expand = 2.0f, float duration = 0.0f) {
-        MarkPrimitiveDirty(primitive_, MakeStyle(primitive_), expand, duration);
+    void requestRepaint(float expand = 2.0f, float duration = 0.0f) {
+        RequestPrimitiveRepaint(primitive_, MakeStyle(primitive_), expand, duration);
     }
 
     float value_ = 0.0f;

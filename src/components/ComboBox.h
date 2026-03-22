@@ -66,7 +66,7 @@ public:
             if (std::abs(hoverAnim_ - targetHover) < 0.01f) {
                 hoverAnim_ = targetHover;
             }
-            markDirty(openAnim_, openAnim_);
+            requestRepaint(openAnim_, openAnim_);
         }
 
         const float targetOpen = isOpen_ ? 1.0f : 0.0f;
@@ -76,7 +76,7 @@ public:
             if (std::abs(openAnim_ - targetOpen) < 0.01f) {
                 openAnim_ = targetOpen;
             }
-            markDirty(fromOpen, openAnim_);
+            requestRepaint(fromOpen, openAnim_);
         }
 
         if (isOpen_ || openAnim_ > 0.0f) {
@@ -93,7 +93,7 @@ public:
                     if (std::abs(itemHoverAnims_[index] - targetItemHover) < 0.01f) {
                         itemHoverAnims_[index] = targetItemHover;
                     }
-                    markDirty(openAnim_, openAnim_);
+                    requestRepaint(openAnim_, openAnim_);
                 }
             }
         }
@@ -118,11 +118,11 @@ public:
 
                 const float fromOpen = openAnim_;
                 isOpen_ = false;
-                markDirty(fromOpen, 0.0f);
+                requestRepaint(fromOpen, 0.0f);
             } else if (hoveredMain) {
                 const float fromOpen = openAnim_;
                 isOpen_ = true;
-                markDirty(fromOpen, 1.0f);
+                requestRepaint(fromOpen, 1.0f);
             }
         }
     }
@@ -224,17 +224,9 @@ private:
         }
     }
 
-    void markDirty(float fromOpenFactor, float toOpenFactor, float duration = 0.0f) {
-        const RectFrame frame = PrimitiveFrame(primitive_);
-        const float visibleList = std::max(
-            listVisibleHeight(frame.height, items_.size(), fromOpenFactor),
-            listVisibleHeight(frame.height, items_.size(), toOpenFactor)
-        );
-        const float overlap = listOverlap(visibleList);
-        const float padding = visibleList > 0.0f ? 12.0f : 0.0f;
-        const float totalHeight = frame.height + visibleList + overlap + padding;
-
-        Renderer::AddDirtyRect(frame.x - 6.0f, frame.y - 6.0f, frame.width + 12.0f, totalHeight + 12.0f);
+    void requestRepaint(float fromOpenFactor, float toOpenFactor, float duration = 0.0f) {
+        (void)fromOpenFactor;
+        (void)toOpenFactor;
         Renderer::RequestRepaint(duration);
     }
 

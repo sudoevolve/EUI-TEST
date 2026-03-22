@@ -121,11 +121,10 @@ bool PrimitiveContains(const UIPrimitive& primitive, float x, float y) {
            y >= frame.y && y <= frame.y + frame.height;
 }
 
-void MarkPrimitiveDirty(const UIPrimitive& primitive, const RectStyle& style, float expand, float duration) {
-    const RectFrame frame = PrimitiveFrame(primitive);
-    const RectBounds bounds = Renderer::MeasureRectBounds(frame.x, frame.y, frame.width, frame.height, style);
-    Renderer::AddDirtyRect(bounds.x - expand, bounds.y - expand,
-                           bounds.w + expand * 2.0f, bounds.h + expand * 2.0f);
+void RequestPrimitiveRepaint(const UIPrimitive& primitive, const RectStyle& style, float expand, float duration) {
+    (void)primitive;
+    (void)style;
+    (void)expand;
     Renderer::RequestRepaint(duration);
 }
 
