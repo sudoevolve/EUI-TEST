@@ -9,38 +9,72 @@ namespace EUINEO {
 
 class UIContext;
 
+struct LayoutBuildInfo {
+    bool hasX = false;
+    bool hasY = false;
+    bool hasWidth = false;
+    bool hasHeight = false;
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    float flex = 0.0f;
+    float marginLeft = 0.0f;
+    float marginTop = 0.0f;
+    float marginRight = 0.0f;
+    float marginBottom = 0.0f;
+};
+
+void FinalizeUIBuild(UIContext& context, UINode& node, const LayoutBuildInfo& info);
+
 template <typename NodeT, typename Derived>
 class UIBuilderBase {
 public:
     Derived& x(float value) {
         node_.primitive().x = value;
+        layoutBuild_.hasX = true;
+        layoutBuild_.x = value;
         return self();
     }
 
     Derived& y(float value) {
         node_.primitive().y = value;
+        layoutBuild_.hasY = true;
+        layoutBuild_.y = value;
         return self();
     }
 
     Derived& position(float xValue, float yValue) {
         node_.primitive().x = xValue;
         node_.primitive().y = yValue;
+        layoutBuild_.hasX = true;
+        layoutBuild_.hasY = true;
+        layoutBuild_.x = xValue;
+        layoutBuild_.y = yValue;
         return self();
     }
 
     Derived& width(float value) {
         node_.primitive().width = value;
+        layoutBuild_.hasWidth = true;
+        layoutBuild_.width = value;
         return self();
     }
 
     Derived& height(float value) {
         node_.primitive().height = value;
+        layoutBuild_.hasHeight = true;
+        layoutBuild_.height = value;
         return self();
     }
 
     Derived& size(float widthValue, float heightValue) {
         node_.primitive().width = widthValue;
         node_.primitive().height = heightValue;
+        layoutBuild_.hasWidth = true;
+        layoutBuild_.hasHeight = true;
+        layoutBuild_.width = widthValue;
+        layoutBuild_.height = heightValue;
         return self();
     }
 
@@ -102,6 +136,36 @@ public:
 
     Derived& opacity(float value) {
         node_.primitive().opacity = std::clamp(value, 0.0f, 1.0f);
+        return self();
+    }
+
+    Derived& flex(float value) {
+        layoutBuild_.flex = std::max(0.0f, value);
+        return self();
+    }
+
+    Derived& margin(float value) {
+        const float clamped = std::max(0.0f, value);
+        layoutBuild_.marginLeft = clamped;
+        layoutBuild_.marginTop = clamped;
+        layoutBuild_.marginRight = clamped;
+        layoutBuild_.marginBottom = clamped;
+        return self();
+    }
+
+    Derived& margin(float horizontal, float vertical) {
+        layoutBuild_.marginLeft = std::max(0.0f, horizontal);
+        layoutBuild_.marginRight = std::max(0.0f, horizontal);
+        layoutBuild_.marginTop = std::max(0.0f, vertical);
+        layoutBuild_.marginBottom = std::max(0.0f, vertical);
+        return self();
+    }
+
+    Derived& margin(float left, float top, float right, float bottom) {
+        layoutBuild_.marginLeft = std::max(0.0f, left);
+        layoutBuild_.marginTop = std::max(0.0f, top);
+        layoutBuild_.marginRight = std::max(0.0f, right);
+        layoutBuild_.marginBottom = std::max(0.0f, bottom);
         return self();
     }
 
@@ -225,7 +289,7 @@ public:
     }
 
     void build() {
-        node_.finishCompose();
+        FinalizeUIBuild(context_, node_, layoutBuild_);
     }
 
 protected:
@@ -244,6 +308,7 @@ protected:
 
     UIContext& context_;
     NodeT& node_;
+    LayoutBuildInfo layoutBuild_;
 };
 
 template <typename NodeT>

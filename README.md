@@ -6,8 +6,8 @@ EUI-NEO 是一个基于 OpenGL + GLFW 的声明式 2D GUI 框架。
 - 组件放在 `src/components`，尽量一个组件一个 `.h`
 
 <p align="center">
-  <img src="./1.jpg" alt="EUI-NEO Preview 1" width="49%" />
-  <img src="./2.jpg" alt="EUI-NEO Preview 2" width="49%" />
+  <img src="./docs/1.jpg" alt="EUI-NEO Preview 1" width="49%" />
+  <img src="./docs/2.jpg" alt="EUI-NEO Preview 2" width="49%" />
 </p>
 
 ## 目录
@@ -65,9 +65,9 @@ EUI-NEO/
   - 演示 `Color / scale / rotation / gradient / queue` 动画轨道
 
 - `Layout`
-  - 最简单的布局示例页
-  - 一个滑条控制左右分栏比例
-  - 用来测试 split layout 的写法
+  - `row() / column() / flex()` 最小示例页
+  - 一个滑条控制左右 `flex` 比例
+  - 用来测试底层布局 DSL
 
 ## 编译
 
@@ -127,6 +127,55 @@ ui.end();
 - `src/pages/HomePage.h`
 - `src/pages/AnimationPage.h`
 - `src/pages/LayoutPage.h`
+
+## Row / Column / Flex
+
+现在底层已经有三种布局写法：
+
+- `ui.row()`
+- `ui.column()`
+- `ui.flex()`
+
+其中：
+
+- `row()` 是横向排布
+- `column()` 是纵向排布
+- `flex()` 是通用弹性容器，靠 `.direction(...)` 选横向或纵向
+- 子项用 `.flex(n)` 吃剩余空间
+
+最简单示例：
+
+```cpp
+ui.column()
+    .position(bounds.x, bounds.y)
+    .size(bounds.width, bounds.height)
+    .gap(16.0f)
+    .content([&] {
+        ui.row()
+            .height(40.0f)
+            .gap(12.0f)
+            .content([&] {
+                ui.button("a").flex(1.0f).text("A").build();
+                ui.button("b").flex(1.0f).text("B").build();
+            });
+
+        ui.flex()
+            .direction(EUINEO::FlexDirection::Row)
+            .flex(1.0f)
+            .gap(16.0f)
+            .content([&] {
+                ui.panel("left").flex(0.35f).build();
+                ui.panel("right").flex(0.65f).build();
+            });
+    });
+```
+
+当前规则很简单：
+
+- 主轴尺寸：固定尺寸优先，剩余空间交给 `.flex(n)`
+- `column()` 子项默认横向撑满
+- `row()` 子项默认保留自己的高度
+- 需要容器内边距时直接 `.padding(...)`
 
 ## 当前锚点定位
 

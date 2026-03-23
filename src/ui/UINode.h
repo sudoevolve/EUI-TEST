@@ -98,6 +98,10 @@ public:
         return measurePrimitivePaintBounds();
     }
 
+    virtual RectFrame layoutBounds() const {
+        return RectFrame{0.0f, 0.0f, primitive_.width, primitive_.height};
+    }
+
     virtual bool wantsContinuousUpdate() const {
         return false;
     }

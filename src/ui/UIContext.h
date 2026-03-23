@@ -20,8 +20,49 @@
 
 namespace EUINEO {
 
+enum class FlexDirection {
+    Row,
+    Column
+};
+
 class UIContext {
+private:
+    struct LayoutState;
+
 public:
+
+    class LayoutBuilder {
+    public:
+        LayoutBuilder(UIContext& context, FlexDirection direction);
+
+        LayoutBuilder& direction(FlexDirection value);
+        LayoutBuilder& x(float value);
+        LayoutBuilder& y(float value);
+        LayoutBuilder& position(float xValue, float yValue);
+        LayoutBuilder& width(float value);
+        LayoutBuilder& height(float value);
+        LayoutBuilder& size(float widthValue, float heightValue);
+        LayoutBuilder& flex(float value);
+        LayoutBuilder& margin(float value);
+        LayoutBuilder& margin(float horizontal, float vertical);
+        LayoutBuilder& margin(float left, float top, float right, float bottom);
+        LayoutBuilder& gap(float value);
+        LayoutBuilder& padding(float value);
+        LayoutBuilder& padding(float horizontal, float vertical);
+        LayoutBuilder& padding(float left, float top, float right, float bottom);
+
+        template <typename Fn>
+        void content(Fn&& compose) {
+            context_.beginLayout(layout_);
+            std::forward<Fn>(compose)();
+            context_.endLayout(layout_);
+        }
+
+    private:
+        UIContext& context_;
+        LayoutState* layout_ = nullptr;
+    };
+
     void begin(const std::string& pageId);
     void end();
     void update();
@@ -36,6 +77,18 @@ public:
                          float contentHeight, float scrollStep = 48.0f);
     void popScrollArea();
     bool consumeRecomposeRequest();
+
+    LayoutBuilder row() {
+        return LayoutBuilder(*this, FlexDirection::Row);
+    }
+
+    LayoutBuilder column() {
+        return LayoutBuilder(*this, FlexDirection::Column);
+    }
+
+    LayoutBuilder flex() {
+        return LayoutBuilder(*this, FlexDirection::Row);
+    }
 
     template <typename NodeT>
     GenericNodeBuilder<NodeT> node(const std::string& id) {
@@ -90,6 +143,23 @@ private:
         float y = 0.0f;
     };
 
+    struct LayoutItem {
+        UINode* node = nullptr;
+        struct LayoutState* container = nullptr;
+        LayoutBuildInfo build;
+    };
+
+    struct LayoutState {
+        FlexDirection direction = FlexDirection::Row;
+        LayoutBuildInfo build;
+        float gap = 0.0f;
+        float paddingLeft = 0.0f;
+        float paddingTop = 0.0f;
+        float paddingRight = 0.0f;
+        float paddingBottom = 0.0f;
+        std::vector<LayoutItem> children;
+    };
+
     template <typename NodeT>
     NodeT& acquire(const std::string& id) {
         const std::string fullKey = pageId_.empty() ? id : pageId_ + "." + id;
@@ -141,7 +211,22 @@ private:
         offsetStack_.pop_back();
     }
 
+    LayoutState* createLayout(FlexDirection direction);
+    void beginLayout(LayoutState* layout);
+    void endLayout(LayoutState* layout);
+    void finalizeBuild(UINode& node, const LayoutBuildInfo& info);
+    void registerLayoutChild(UINode& node, const LayoutBuildInfo& info);
+    void resolveLayout(LayoutState& layout, const RectFrame& frame);
+    RectFrame resolveLayoutFrame(const LayoutState& layout) const;
+    float preferredMainSize(const LayoutItem& item, FlexDirection direction) const;
+    float resolveMainSize(const LayoutItem& item, FlexDirection direction, float flexSpace, float totalFlex) const;
+    float resolveCrossSize(const LayoutItem& item, FlexDirection direction, float availableCross) const;
+    RectFrame resolveItemFrame(const LayoutItem& item, FlexDirection direction,
+                              float cursor, float crossStart, float mainSize, float crossSize) const;
+    void applyResolvedFrame(UINode& node, const RectFrame& frame);
     void refreshLayerBounds();
+
+    friend void FinalizeUIBuild(UIContext& context, UINode& node, const LayoutBuildInfo& info);
 
     std::string pageId_;
     std::uint64_t composeStamp_ = 0;
@@ -150,6 +235,8 @@ private:
     std::vector<UINode*> drawOrder_;
     std::vector<UIClipRect> clipStack_;
     std::vector<Offset> offsetStack_;
+    std::vector<std::unique_ptr<LayoutState>> ownedLayouts_;
+    std::vector<LayoutState*> layoutStack_;
     mutable std::vector<RectFrame> layerBounds_;
     bool treeChanged_ = false;
     bool needsRecompose_ = false;
@@ -158,5 +245,113 @@ private:
     float currentOffsetX_ = 0.0f;
     float currentOffsetY_ = 0.0f;
 };
+
+inline UIContext::LayoutBuilder::LayoutBuilder(UIContext& context, FlexDirection direction)
+    : context_(context), layout_(context.createLayout(direction)) {}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::direction(FlexDirection value) {
+    layout_->direction = value;
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::x(float value) {
+    layout_->build.hasX = true;
+    layout_->build.x = value;
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::y(float value) {
+    layout_->build.hasY = true;
+    layout_->build.y = value;
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::position(float xValue, float yValue) {
+    layout_->build.hasX = true;
+    layout_->build.hasY = true;
+    layout_->build.x = xValue;
+    layout_->build.y = yValue;
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::width(float value) {
+    layout_->build.hasWidth = true;
+    layout_->build.width = value;
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::height(float value) {
+    layout_->build.hasHeight = true;
+    layout_->build.height = value;
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::size(float widthValue, float heightValue) {
+    layout_->build.hasWidth = true;
+    layout_->build.hasHeight = true;
+    layout_->build.width = widthValue;
+    layout_->build.height = heightValue;
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::flex(float value) {
+    layout_->build.flex = std::max(0.0f, value);
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::margin(float value) {
+    const float clamped = std::max(0.0f, value);
+    layout_->build.marginLeft = clamped;
+    layout_->build.marginTop = clamped;
+    layout_->build.marginRight = clamped;
+    layout_->build.marginBottom = clamped;
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::margin(float horizontal, float vertical) {
+    layout_->build.marginLeft = std::max(0.0f, horizontal);
+    layout_->build.marginRight = std::max(0.0f, horizontal);
+    layout_->build.marginTop = std::max(0.0f, vertical);
+    layout_->build.marginBottom = std::max(0.0f, vertical);
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::margin(float left, float top, float right, float bottom) {
+    layout_->build.marginLeft = std::max(0.0f, left);
+    layout_->build.marginTop = std::max(0.0f, top);
+    layout_->build.marginRight = std::max(0.0f, right);
+    layout_->build.marginBottom = std::max(0.0f, bottom);
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::gap(float value) {
+    layout_->gap = std::max(0.0f, value);
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::padding(float value) {
+    const float clamped = std::max(0.0f, value);
+    layout_->paddingLeft = clamped;
+    layout_->paddingTop = clamped;
+    layout_->paddingRight = clamped;
+    layout_->paddingBottom = clamped;
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::padding(float horizontal, float vertical) {
+    layout_->paddingLeft = std::max(0.0f, horizontal);
+    layout_->paddingRight = std::max(0.0f, horizontal);
+    layout_->paddingTop = std::max(0.0f, vertical);
+    layout_->paddingBottom = std::max(0.0f, vertical);
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::padding(float left, float top, float right, float bottom) {
+    layout_->paddingLeft = std::max(0.0f, left);
+    layout_->paddingTop = std::max(0.0f, top);
+    layout_->paddingRight = std::max(0.0f, right);
+    layout_->paddingBottom = std::max(0.0f, bottom);
+    return *this;
+}
 
 } // namespace EUINEO

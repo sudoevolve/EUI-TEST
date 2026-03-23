@@ -112,10 +112,12 @@ public:
 
         const float trackHeight = 4.0f;
         const float trackY = frame.y + (frame.height - trackHeight) * 0.5f;
-        const Color idleTrack = ApplyOpacity(CurrentTheme->surface, primitive_.opacity);
-        const Color activeTrack = ApplyOpacity(
-            Color(CurrentTheme->primary.r, CurrentTheme->primary.g, CurrentTheme->primary.b,
-                  CurrentTheme == &DarkTheme ? 0.28f : 0.18f),
+        const Color trackColor = ApplyOpacity(
+            Lerp(
+                CurrentTheme->surfaceHover,
+                CurrentTheme->surfaceActive,
+                CurrentTheme == &DarkTheme ? 0.24f : 0.18f
+            ),
             primitive_.opacity
         );
         Renderer::DrawRect(
@@ -123,7 +125,7 @@ public:
             trackY,
             frame.width,
             trackHeight,
-            Lerp(idleTrack, activeTrack, emphasis),
+            trackColor,
             trackHeight * 0.5f
         );
 

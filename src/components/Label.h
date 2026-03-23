@@ -48,16 +48,23 @@ public:
 
     void update() override {}
 
+    RectFrame layoutBounds() const override {
+        RectFrame bounds = Renderer::MeasureTextBounds(text_, fontSize_ / 24.0f);
+        if (bounds.width <= 0.0f && bounds.height <= 0.0f) {
+            bounds.width = 1.0f;
+            bounds.height = std::max(fontSize_ * 0.8f, 1.0f);
+        }
+        return bounds;
+    }
+
     RectFrame paintBounds() const override {
         const RectFrame frame = PrimitiveFrame(primitive_);
-        const float textScale = fontSize_ / 24.0f;
-        const float textWidth = std::max(Renderer::MeasureTextWidth(text_, textScale), 1.0f);
-        const float textHeight = std::max(32.0f * textScale * 1.35f, 1.0f);
+        RectFrame bounds = layoutBounds();
         return clipPaintBounds(RectFrame{
-            frame.x + primitive_.translateX,
-            frame.y + primitive_.translateY - textHeight,
-            textWidth,
-            textHeight
+            frame.x + primitive_.translateX + bounds.x,
+            frame.y + primitive_.translateY + bounds.y,
+            bounds.width,
+            bounds.height
         });
     }
 

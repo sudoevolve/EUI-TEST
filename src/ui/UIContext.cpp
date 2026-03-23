@@ -49,7 +49,38 @@ int LayerDrawPriority(RenderLayer layer) {
     }
 }
 
+float ClampDimension(float value) {
+    return std::max(0.0f, value);
+}
+
+float MainMarginBefore(const LayoutBuildInfo& build, FlexDirection direction) {
+    return direction == FlexDirection::Row ? build.marginLeft : build.marginTop;
+}
+
+float MainMarginAfter(const LayoutBuildInfo& build, FlexDirection direction) {
+    return direction == FlexDirection::Row ? build.marginRight : build.marginBottom;
+}
+
+float CrossMarginBefore(const LayoutBuildInfo& build, FlexDirection direction) {
+    return direction == FlexDirection::Row ? build.marginTop : build.marginLeft;
+}
+
+float CrossMarginAfter(const LayoutBuildInfo& build, FlexDirection direction) {
+    return direction == FlexDirection::Row ? build.marginBottom : build.marginRight;
+}
+
+float ResolveCrossOffset(FlexDirection direction, float availableCross, float crossSize) {
+    if (direction != FlexDirection::Row) {
+        return 0.0f;
+    }
+    return std::max(0.0f, (availableCross - crossSize) * 0.5f);
+}
+
 } // namespace
+
+void FinalizeUIBuild(UIContext& context, UINode& node, const LayoutBuildInfo& info) {
+    context.finalizeBuild(node, info);
+}
 
 void UIContext::begin(const std::string& pageId) {
     pageId_ = pageId;
@@ -59,6 +90,8 @@ void UIContext::begin(const std::string& pageId) {
     drawOrderStamp_ = 0;
     clipStack_.clear();
     offsetStack_.clear();
+    ownedLayouts_.clear();
+    layoutStack_.clear();
     currentOffsetX_ = 0.0f;
     currentOffsetY_ = 0.0f;
     treeChanged_ = false;
@@ -153,6 +186,234 @@ float UIContext::pushScrollArea(const std::string& id, float x, float y, float w
 void UIContext::popScrollArea() {
     popOffset();
     popClip();
+}
+
+UIContext::LayoutState* UIContext::createLayout(FlexDirection direction) {
+    auto layout = std::make_unique<LayoutState>();
+    layout->direction = direction;
+    LayoutState* raw = layout.get();
+    ownedLayouts_.push_back(std::move(layout));
+    return raw;
+}
+
+void UIContext::beginLayout(LayoutState* layout) {
+    if (layout == nullptr) {
+        return;
+    }
+
+    if (!layoutStack_.empty()) {
+        LayoutItem item;
+        item.container = layout;
+        item.build = layout->build;
+        layoutStack_.back()->children.push_back(item);
+    }
+
+    layoutStack_.push_back(layout);
+}
+
+void UIContext::endLayout(LayoutState* layout) {
+    if (layout == nullptr || layoutStack_.empty()) {
+        return;
+    }
+
+    if (layoutStack_.back() == layout) {
+        layoutStack_.pop_back();
+    }
+
+    if (layoutStack_.empty()) {
+        resolveLayout(*layout, resolveLayoutFrame(*layout));
+    }
+}
+
+void UIContext::finalizeBuild(UINode& node, const LayoutBuildInfo& info) {
+    if (layoutStack_.empty()) {
+        node.finishCompose();
+        return;
+    }
+    registerLayoutChild(node, info);
+}
+
+void UIContext::registerLayoutChild(UINode& node, const LayoutBuildInfo& info) {
+    LayoutItem item;
+    item.node = &node;
+    item.build = info;
+    layoutStack_.back()->children.push_back(item);
+}
+
+RectFrame UIContext::resolveLayoutFrame(const LayoutState& layout) const {
+    return RectFrame{
+        layout.build.hasX ? layout.build.x : 0.0f,
+        layout.build.hasY ? layout.build.y : 0.0f,
+        layout.build.hasWidth ? layout.build.width : 0.0f,
+        layout.build.hasHeight ? layout.build.height : 0.0f
+    };
+}
+
+float UIContext::preferredMainSize(const LayoutItem& item, FlexDirection direction) const {
+    const bool isRow = direction == FlexDirection::Row;
+    const float explicitSize = isRow ? item.build.width : item.build.height;
+    const bool hasExplicitSize = isRow ? item.build.hasWidth : item.build.hasHeight;
+    if (hasExplicitSize) {
+        return ClampDimension(explicitSize);
+    }
+
+    if (item.container != nullptr) {
+        return ClampDimension(explicitSize);
+    }
+
+    if (item.node == nullptr) {
+        return 0.0f;
+    }
+
+    const UIPrimitive& primitive = item.node->primitive();
+    const float primitiveSize = isRow ? primitive.width : primitive.height;
+    if (primitiveSize > 0.0f) {
+        return primitiveSize;
+    }
+
+    const RectFrame bounds = item.node->layoutBounds();
+    return ClampDimension(isRow ? bounds.width : bounds.height);
+}
+
+float UIContext::resolveMainSize(const LayoutItem& item, FlexDirection direction,
+                                 float flexSpace, float totalFlex) const {
+    if (item.build.flex > 0.0f && totalFlex > 0.0f) {
+        return ClampDimension(flexSpace * (item.build.flex / totalFlex));
+    }
+    return preferredMainSize(item, direction);
+}
+
+float UIContext::resolveCrossSize(const LayoutItem& item, FlexDirection direction, float availableCross) const {
+    const bool isRow = direction == FlexDirection::Row;
+    const float explicitSize = isRow ? item.build.height : item.build.width;
+    const bool hasExplicitSize = isRow ? item.build.hasHeight : item.build.hasWidth;
+    if (hasExplicitSize) {
+        return ClampDimension(explicitSize);
+    }
+
+    if (item.container != nullptr) {
+        return ClampDimension(availableCross);
+    }
+
+    if (item.node == nullptr) {
+        return ClampDimension(availableCross);
+    }
+
+    const UIPrimitive& primitive = item.node->primitive();
+    const float primitiveSize = isRow ? primitive.height : primitive.width;
+    if (!isRow) {
+        return ClampDimension(availableCross);
+    }
+    if (primitiveSize > 0.0f) {
+        return std::min(primitiveSize, ClampDimension(availableCross));
+    }
+
+    const RectFrame bounds = item.node->layoutBounds();
+    const float intrinsicCross = ClampDimension(bounds.height);
+    if (intrinsicCross > 0.0f) {
+        return std::min(intrinsicCross, ClampDimension(availableCross));
+    }
+    return ClampDimension(availableCross);
+}
+
+RectFrame UIContext::resolveItemFrame(const LayoutItem& item, FlexDirection direction,
+                                      float cursor, float crossStart,
+                                      float mainSize, float crossSize) const {
+    if (direction == FlexDirection::Row) {
+        return RectFrame{
+            cursor + (item.build.hasX ? item.build.x : 0.0f),
+            crossStart + (item.build.hasY ? item.build.y : 0.0f),
+            ClampDimension(mainSize),
+            ClampDimension(crossSize)
+        };
+    }
+
+    return RectFrame{
+        crossStart + (item.build.hasX ? item.build.x : 0.0f),
+        cursor + (item.build.hasY ? item.build.y : 0.0f),
+        ClampDimension(crossSize),
+        ClampDimension(mainSize)
+    };
+}
+
+void UIContext::applyResolvedFrame(UINode& node, const RectFrame& frame) {
+    UIPrimitive& primitive = node.primitive();
+    primitive.width = frame.width;
+    primitive.height = frame.height;
+    if (primitive.minWidth > 0.0f) {
+        primitive.width = std::max(primitive.width, primitive.minWidth);
+    }
+    if (primitive.minHeight > 0.0f) {
+        primitive.height = std::max(primitive.height, primitive.minHeight);
+    }
+    if (primitive.maxWidth > 0.0f) {
+        primitive.width = std::min(primitive.width, primitive.maxWidth);
+    }
+    if (primitive.maxHeight > 0.0f) {
+        primitive.height = std::min(primitive.height, primitive.maxHeight);
+    }
+    const RectFrame layoutBounds = node.layoutBounds();
+    primitive.x = frame.x - layoutBounds.x;
+    primitive.y = frame.y - layoutBounds.y;
+    node.finishCompose();
+}
+
+void UIContext::resolveLayout(LayoutState& layout, const RectFrame& frame) {
+    const float innerX = frame.x + layout.paddingLeft;
+    const float innerY = frame.y + layout.paddingTop;
+    const float innerWidth = ClampDimension(frame.width - layout.paddingLeft - layout.paddingRight);
+    const float innerHeight = ClampDimension(frame.height - layout.paddingTop - layout.paddingBottom);
+    const float availableMain = layout.direction == FlexDirection::Row ? innerWidth : innerHeight;
+    const float availableCross = layout.direction == FlexDirection::Row ? innerHeight : innerWidth;
+    const std::size_t childCount = layout.children.size();
+    const float gapTotal = childCount > 1 ? layout.gap * static_cast<float>(childCount - 1) : 0.0f;
+
+    float fixedMain = 0.0f;
+    float totalFlex = 0.0f;
+    float totalMargins = 0.0f;
+    for (const LayoutItem& item : layout.children) {
+        totalMargins += MainMarginBefore(item.build, layout.direction) + MainMarginAfter(item.build, layout.direction);
+        if (item.build.flex > 0.0f) {
+            totalFlex += item.build.flex;
+        } else {
+            fixedMain += preferredMainSize(item, layout.direction);
+        }
+    }
+
+    const float flexSpace = std::max(0.0f, availableMain - fixedMain - totalMargins - gapTotal);
+    float cursor = layout.direction == FlexDirection::Row ? innerX : innerY;
+    const float crossStart = layout.direction == FlexDirection::Row ? innerY : innerX;
+
+    for (LayoutItem& item : layout.children) {
+        const float mainMarginBefore = MainMarginBefore(item.build, layout.direction);
+        const float mainMarginAfter = MainMarginAfter(item.build, layout.direction);
+        const float crossMarginBefore = CrossMarginBefore(item.build, layout.direction);
+        const float crossMarginAfter = CrossMarginAfter(item.build, layout.direction);
+        const float mainSize = resolveMainSize(item, layout.direction, flexSpace, totalFlex);
+        const float crossAvailable = std::max(0.0f, availableCross - crossMarginBefore - crossMarginAfter);
+        const float crossSize = resolveCrossSize(
+            item,
+            layout.direction,
+            crossAvailable
+        );
+        const float crossOffset = ResolveCrossOffset(layout.direction, crossAvailable, crossSize);
+        const RectFrame childFrame = resolveItemFrame(
+            item,
+            layout.direction,
+            cursor + mainMarginBefore,
+            crossStart + crossMarginBefore + crossOffset,
+            mainSize,
+            crossSize
+        );
+
+        if (item.node != nullptr) {
+            applyResolvedFrame(*item.node, childFrame);
+        } else if (item.container != nullptr) {
+            resolveLayout(*item.container, childFrame);
+        }
+
+        cursor += mainMarginBefore + mainSize + mainMarginAfter + layout.gap;
+    }
 }
 
 void UIContext::update() {

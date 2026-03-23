@@ -890,6 +890,54 @@ static int MakeTextScaleKey(float scale) {
     return static_cast<int>(std::lround(scale * 1024.0f));
 }
 
+static bool DecodeUtf8Codepoint(const std::string& text, size_t& index, unsigned int& outCodepoint) {
+    if (index >= text.length()) {
+        return false;
+    }
+
+    const unsigned char ch = static_cast<unsigned char>(text[index]);
+    if (ch <= 0x7F) {
+        outCodepoint = ch;
+        ++index;
+        return true;
+    }
+    if ((ch & 0xE0) == 0xC0) {
+        if (index + 1 >= text.length()) {
+            ++index;
+            return false;
+        }
+        outCodepoint = ((ch & 0x1F) << 6) | (static_cast<unsigned char>(text[index + 1]) & 0x3F);
+        index += 2;
+        return true;
+    }
+    if ((ch & 0xF0) == 0xE0) {
+        if (index + 2 >= text.length()) {
+            ++index;
+            return false;
+        }
+        outCodepoint = ((ch & 0x0F) << 12) |
+                       ((static_cast<unsigned char>(text[index + 1]) & 0x3F) << 6) |
+                       (static_cast<unsigned char>(text[index + 2]) & 0x3F);
+        index += 3;
+        return true;
+    }
+    if ((ch & 0xF8) == 0xF0) {
+        if (index + 3 >= text.length()) {
+            ++index;
+            return false;
+        }
+        outCodepoint = ((ch & 0x07) << 18) |
+                       ((static_cast<unsigned char>(text[index + 1]) & 0x3F) << 12) |
+                       ((static_cast<unsigned char>(text[index + 2]) & 0x3F) << 6) |
+                       (static_cast<unsigned char>(text[index + 3]) & 0x3F);
+        index += 4;
+        return true;
+    }
+
+    ++index;
+    return false;
+}
+
 static const char* textVShaderStr = R"(
 #version 330 core
 layout(location = 0) in vec4 vertex;
@@ -1480,12 +1528,11 @@ void Renderer::DrawTextStr(const std::string& text, float x, float y, const Colo
     const bool needsRotation = std::abs(rotationDegrees) > 0.001f;
     if (needsRotation || useCustomPivot) {
         if (!useCustomPivot) {
-            const float textWidth = std::max(MeasureTextWidth(text, scale), 24.0f * scale);
-            const float textHeight = 32.0f * scale;
-            const float boundsX = x;
-            const float boundsY = y - textHeight;
-            const float boundsW = textWidth;
-            const float boundsH = textHeight * 1.35f;
+            const RectFrame bounds = MeasureTextBounds(text, scale);
+            const float boundsX = x + bounds.x;
+            const float boundsY = y + bounds.y;
+            const float boundsW = std::max(bounds.width, 24.0f * scale);
+            const float boundsH = std::max(bounds.height, 32.0f * scale);
             finalPivotX = boundsX + boundsW * 0.5f;
             finalPivotY = boundsY + boundsH * 0.5f;
         }
@@ -1505,12 +1552,9 @@ void Renderer::DrawTextStr(const std::string& text, float x, float y, const Colo
     size_t i = 0;
     while (i < text.length()) {
         unsigned int c = 0;
-        unsigned char ch = text[i];
-        if (ch <= 0x7F) { c = ch; i++; }
-        else if ((ch & 0xE0) == 0xC0) { if (i + 1 < text.length()) { c = ((ch & 0x1F) << 6) | (text[i + 1] & 0x3F); i += 2; } else break; }
-        else if ((ch & 0xF0) == 0xE0) { if (i + 2 < text.length()) { c = ((ch & 0x0F) << 12) | ((text[i + 1] & 0x3F) << 6) | (text[i + 2] & 0x3F); i += 3; } else break; }
-        else if ((ch & 0xF8) == 0xF0) { if (i + 3 < text.length()) { c = ((ch & 0x07) << 18) | ((text[i + 1] & 0x3F) << 12) | ((text[i + 2] & 0x3F) << 6) | (text[i + 3] & 0x3F); i += 4; } else break; }
-        else { i++; continue; }
+        if (!DecodeUtf8Codepoint(text, i, c)) {
+            continue;
+        }
 
         if (c == ' ') {
             x += 24.0f * 0.3f * scale;
@@ -1557,6 +1601,66 @@ void Renderer::DrawTextStr(const std::string& text, float x, float y, const Colo
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
+RectFrame Renderer::MeasureTextBounds(const std::string& text, float scale) {
+    if (text.empty()) {
+        return RectFrame{};
+    }
+
+    float penX = 0.0f;
+    bool hasGlyphBounds = false;
+    float minX = 0.0f;
+    float minY = 0.0f;
+    float maxX = 0.0f;
+    float maxY = 0.0f;
+
+    size_t index = 0;
+    while (index < text.length()) {
+        unsigned int c = 0;
+        if (!DecodeUtf8Codepoint(text, index, c)) {
+            continue;
+        }
+
+        if (c == ' ') {
+            penX += 24.0f * 0.3f * scale;
+            continue;
+        }
+
+        auto it = Characters.find(c);
+        if (it == Characters.end()) {
+            continue;
+        }
+
+        const Character& charData = it->second;
+        const float glyphX = penX + charData.Bearing[0] * scale;
+        const float glyphY = charData.Bearing[1] * scale;
+        const float glyphW = charData.Size[0] * scale;
+        const float glyphH = charData.Size[1] * scale;
+
+        if (glyphW > 0.0f && glyphH > 0.0f) {
+            if (!hasGlyphBounds) {
+                minX = glyphX;
+                minY = glyphY;
+                maxX = glyphX + glyphW;
+                maxY = glyphY + glyphH;
+                hasGlyphBounds = true;
+            } else {
+                minX = std::min(minX, glyphX);
+                minY = std::min(minY, glyphY);
+                maxX = std::max(maxX, glyphX + glyphW);
+                maxY = std::max(maxY, glyphY + glyphH);
+            }
+        }
+
+        penX += charData.Advance * scale;
+    }
+
+    if (!hasGlyphBounds) {
+        return RectFrame{0.0f, 0.0f, penX, 0.0f};
+    }
+
+    return RectFrame{minX, minY, maxX - minX, maxY - minY};
+}
+
 float Renderer::MeasureTextWidth(const std::string& text, float scale) {
     if (text.empty()) {
         return 0.0f;
@@ -1572,12 +1676,9 @@ float Renderer::MeasureTextWidth(const std::string& text, float scale) {
     size_t i = 0;
     while (i < text.length()) {
         unsigned int c = 0;
-        unsigned char ch = text[i];
-        if (ch <= 0x7F) { c = ch; i++; }
-        else if ((ch & 0xE0) == 0xC0) { if (i + 1 < text.length()) { c = ((ch & 0x1F) << 6) | (text[i + 1] & 0x3F); i += 2; } else break; }
-        else if ((ch & 0xF0) == 0xE0) { if (i + 2 < text.length()) { c = ((ch & 0x0F) << 12) | ((text[i + 1] & 0x3F) << 6) | (text[i + 2] & 0x3F); i += 3; } else break; }
-        else if ((ch & 0xF8) == 0xF0) { if (i + 3 < text.length()) { c = ((ch & 0x07) << 18) | ((text[i + 1] & 0x3F) << 12) | ((text[i + 2] & 0x3F) << 6) | (text[i + 3] & 0x3F); i += 4; } else break; }
-        else { i++; continue; }
+        if (!DecodeUtf8Codepoint(text, i, c)) {
+            continue;
+        }
 
         if (Characters.find(c) != Characters.end()) {
             width += Characters[c].Advance * scale;

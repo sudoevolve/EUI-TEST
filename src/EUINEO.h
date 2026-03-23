@@ -329,6 +329,7 @@ public:
     static void DrawTextStr(const std::string& text, float x, float y, const Color& color, float scale = 1.0f,
                             float rotationDegrees = 0.0f, float pivotX = 0.0f, float pivotY = 0.0f,
                             bool useCustomPivot = false);
+    static RectFrame MeasureTextBounds(const std::string& text, float scale = 1.0f);
     static float MeasureTextWidth(const std::string& text, float scale = 1.0f);
     static void RequestRepaint(float duration = 0.0f);
     static bool ShouldRepaint();
