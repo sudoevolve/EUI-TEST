@@ -106,6 +106,10 @@ public:
         return false;
     }
 
+    virtual bool usesCachedSurface() const {
+        return true;
+    }
+
     virtual const char* typeName() const = 0;
     virtual void update() = 0;
     virtual void draw() = 0;

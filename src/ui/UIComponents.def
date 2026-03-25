@@ -1,6 +1,7 @@
 EUI_UI_COMPONENT(panel, PanelNode)
 EUI_UI_COMPONENT(glassPanel, GlassPanelNode)
 EUI_UI_COMPONENT(popupPanel, PopupPanelNode)
+EUI_UI_COMPONENT(polygon, PolygonNode)
 EUI_UI_COMPONENT(label, LabelNode)
 EUI_UI_COMPONENT(button, ButtonNode)
 EUI_UI_COMPONENT(progress, ProgressBarNode)

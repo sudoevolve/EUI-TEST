@@ -248,6 +248,7 @@ struct CachedSurface {
 
 static LayerCache LayerCaches[static_cast<int>(RenderLayer::Count)];
 static std::unordered_map<std::string, CachedSurface> CachedSurfaces;
+static constexpr float CachedSurfaceSupersampleScale = 2.0f;
 static GLuint CompositeProgram = 0;
 static GLuint CompositeVAO = 0;
 static GLuint CompositeVBO = 0;
@@ -257,6 +258,11 @@ static GLint CompositeSizeLoc = -1;
 static GLint CompositeTextureLoc = -1;
 static GLint CompositeUVPosLoc = -1;
 static GLint CompositeUVSizeLoc = -1;
+static GLuint PolygonProgram = 0;
+static GLuint PolygonVAO = 0;
+static GLuint PolygonVBO = 0;
+static GLint PolygonProjLoc = -1;
+static GLint PolygonColorLoc = -1;
 static int ActiveLayerIndex = -1;
 static bool ActiveCustomSurface = false;
 static RectFrame ActiveCustomSurfaceBounds;
@@ -466,6 +472,24 @@ void main() {
 }
 )";
 
+static const char* polygonVShaderStr = R"(
+#version 330 core
+layout(location = 0) in vec2 aPos;
+uniform mat4 projection;
+void main() {
+    gl_Position = projection * vec4(aPos, 0.0, 1.0);
+}
+)";
+
+static const char* polygonFShaderStr = R"(
+#version 330 core
+uniform vec4 uColor;
+out vec4 FragColor;
+void main() {
+    FragColor = uColor;
+}
+)";
+
 static GLuint CompileShader(GLenum type, const char* source) {
     GLuint shader = glCreateShader(type);
     glShaderSource(shader, 1, &source, nullptr);
@@ -588,6 +612,137 @@ static RectBounds ComputeRectBounds(float x, float y, float w, float h, const Re
     out.w = (unionX2 - unionX1) + expand * 2.0f;
     out.h = (unionY2 - unionY1) + expand * 2.0f;
     return out;
+}
+
+static RectBounds ComputePolygonBounds(const std::vector<Point2>& points, float strokeWidth) {
+    RectBounds bounds;
+    if (points.empty()) {
+        return bounds;
+    }
+
+    float minX = points[0].x;
+    float minY = points[0].y;
+    float maxX = points[0].x;
+    float maxY = points[0].y;
+    for (const Point2& point : points) {
+        minX = std::min(minX, point.x);
+        minY = std::min(minY, point.y);
+        maxX = std::max(maxX, point.x);
+        maxY = std::max(maxY, point.y);
+    }
+
+    const float expand = std::max(0.0f, strokeWidth) * 0.5f;
+    bounds.x = minX - expand;
+    bounds.y = minY - expand;
+    bounds.w = (maxX - minX) + expand * 2.0f;
+    bounds.h = (maxY - minY) + expand * 2.0f;
+    return bounds;
+}
+
+static float SignedPolygonArea(const std::vector<Point2>& points) {
+    if (points.size() < 3) {
+        return 0.0f;
+    }
+
+    float area = 0.0f;
+    for (size_t index = 0; index < points.size(); ++index) {
+        const Point2& current = points[index];
+        const Point2& next = points[(index + 1) % points.size()];
+        area += current.x * next.y - next.x * current.y;
+    }
+    return area * 0.5f;
+}
+
+static float TriangleCross(const Point2& a, const Point2& b, const Point2& c) {
+    return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+static bool PointInTriangle(const Point2& point, const Point2& a, const Point2& b, const Point2& c) {
+    const float area1 = TriangleCross(point, a, b);
+    const float area2 = TriangleCross(point, b, c);
+    const float area3 = TriangleCross(point, c, a);
+    const bool hasNegative = area1 < 0.0f || area2 < 0.0f || area3 < 0.0f;
+    const bool hasPositive = area1 > 0.0f || area2 > 0.0f || area3 > 0.0f;
+    return !(hasNegative && hasPositive);
+}
+
+static std::vector<Point2> TriangulatePolygon(const std::vector<Point2>& points) {
+    std::vector<Point2> triangles;
+    if (points.size() < 3) {
+        return triangles;
+    }
+
+    if (points.size() == 3) {
+        return points;
+    }
+
+    std::vector<int> indices(points.size());
+    for (size_t index = 0; index < points.size(); ++index) {
+        indices[index] = static_cast<int>(index);
+    }
+
+    const bool ccw = SignedPolygonArea(points) >= 0.0f;
+    int guard = static_cast<int>(points.size()) * static_cast<int>(points.size());
+    while (indices.size() > 3 && guard-- > 0) {
+        bool clippedEar = false;
+        for (size_t index = 0; index < indices.size(); ++index) {
+            const size_t prevIndex = (index + indices.size() - 1) % indices.size();
+            const size_t nextIndex = (index + 1) % indices.size();
+            const Point2& a = points[indices[prevIndex]];
+            const Point2& b = points[indices[index]];
+            const Point2& c = points[indices[nextIndex]];
+
+            const float cross = TriangleCross(a, b, c);
+            if ((ccw && cross <= 0.0f) || (!ccw && cross >= 0.0f)) {
+                continue;
+            }
+
+            bool containsOtherPoint = false;
+            for (size_t testIndex = 0; testIndex < indices.size(); ++testIndex) {
+                if (testIndex == prevIndex || testIndex == index || testIndex == nextIndex) {
+                    continue;
+                }
+                if (PointInTriangle(points[indices[testIndex]], a, b, c)) {
+                    containsOtherPoint = true;
+                    break;
+                }
+            }
+            if (containsOtherPoint) {
+                continue;
+            }
+
+            triangles.push_back(a);
+            triangles.push_back(b);
+            triangles.push_back(c);
+            indices.erase(indices.begin() + static_cast<std::ptrdiff_t>(index));
+            clippedEar = true;
+            break;
+        }
+
+        if (!clippedEar) {
+            break;
+        }
+    }
+
+    if (indices.size() == 3) {
+        triangles.push_back(points[indices[0]]);
+        triangles.push_back(points[indices[1]]);
+        triangles.push_back(points[indices[2]]);
+    }
+
+    if (indices.size() != 3) {
+        triangles.clear();
+    }
+
+    if (triangles.empty()) {
+        for (size_t index = 1; index + 1 < points.size(); ++index) {
+            triangles.push_back(points[0]);
+            triangles.push_back(points[index]);
+            triangles.push_back(points[index + 1]);
+        }
+    }
+
+    return triangles;
 }
 
 static void EnsureCachedBlurTexture(int width, int height) {
@@ -808,19 +963,21 @@ static bool MakeScreenScissorRect(const RectFrame& bounds, GLint& outX, GLint& o
     return true;
 }
 
-static bool MakeLocalScissorRect(const RectFrame& surfaceBounds, int surfaceHeight,
+static bool MakeLocalScissorRect(const RectFrame& surfaceBounds, int surfaceWidth, int surfaceHeight,
                                  const RectFrame& bounds, GLint& outX, GLint& outY,
                                  GLint& outW, GLint& outH) {
     if (bounds.width <= 0.0f || bounds.height <= 0.0f ||
         surfaceBounds.width <= 0.0f || surfaceBounds.height <= 0.0f ||
-        surfaceHeight <= 0) {
+        surfaceWidth <= 0 || surfaceHeight <= 0) {
         return false;
     }
 
-    const float x1 = std::clamp(bounds.x - surfaceBounds.x, 0.0f, surfaceBounds.width);
-    const float y1 = std::clamp(bounds.y - surfaceBounds.y, 0.0f, surfaceBounds.height);
-    const float x2 = std::clamp(bounds.x + bounds.width - surfaceBounds.x, x1, surfaceBounds.width);
-    const float y2 = std::clamp(bounds.y + bounds.height - surfaceBounds.y, y1, surfaceBounds.height);
+    const float scaleX = static_cast<float>(surfaceWidth) / surfaceBounds.width;
+    const float scaleY = static_cast<float>(surfaceHeight) / surfaceBounds.height;
+    const float x1 = std::clamp((bounds.x - surfaceBounds.x) * scaleX, 0.0f, static_cast<float>(surfaceWidth));
+    const float y1 = std::clamp((bounds.y - surfaceBounds.y) * scaleY, 0.0f, static_cast<float>(surfaceHeight));
+    const float x2 = std::clamp((bounds.x + bounds.width - surfaceBounds.x) * scaleX, x1, static_cast<float>(surfaceWidth));
+    const float y2 = std::clamp((bounds.y + bounds.height - surfaceBounds.y) * scaleY, y1, static_cast<float>(surfaceHeight));
     if (x2 <= x1 || y2 <= y1) {
         return false;
     }
@@ -858,9 +1015,22 @@ static bool CachedBlurMatches(float quadX, float quadY, float quadW, float quadH
 
 struct Character {
     GLuint TextureID;
-    int Size[2];
-    int Bearing[2];
-    unsigned int Advance;
+    float RenderSize[2];
+    float RenderBearing[2];
+    float VisibleSize[2];
+    float VisibleBearing[2];
+    float Advance;
+    float BasePixelSize;
+    bool IsSdf;
+};
+
+struct FontSource {
+    std::string Path;
+    std::vector<unsigned char> Buffer;
+    stbtt_fontinfo Info{};
+    float PixelSize = 24.0f;
+    bool UseSdf = true;
+    bool Loaded = false;
 };
 
 struct TextWidthCacheKey {
@@ -880,14 +1050,182 @@ struct TextWidthCacheKeyHash {
 
 static std::unordered_map<unsigned int, Character> Characters;
 static std::unordered_map<TextWidthCacheKey, float, TextWidthCacheKeyHash> TextWidthCache;
+static std::vector<FontSource> FontSources;
 static GLuint TextVAO = 0;
 static GLuint TextVBO = 0;
 static GLuint TextShaderProgram = 0;
 static GLint TextProjLoc = -1;
 static GLint TextColorLoc = -1;
+static GLint TextModeLoc = -1;
+static constexpr int kTextSdfPadding = 8;
+static constexpr unsigned char kTextSdfOnEdgeValue = 180;
+static constexpr float kTextSdfPixelDistScale =
+    static_cast<float>(kTextSdfOnEdgeValue) / static_cast<float>(kTextSdfPadding);
 
 static int MakeTextScaleKey(float scale) {
     return static_cast<int>(std::lround(scale * 1024.0f));
+}
+
+static float ResolveRequestedTextPixelSize(float normalizedScale) {
+    return 24.0f * normalizedScale;
+}
+
+static float ResolveCharacterScale(const Character& character, float normalizedScale) {
+    const float basePixelSize = std::max(character.BasePixelSize, 1.0f);
+    return ResolveRequestedTextPixelSize(normalizedScale) / basePixelSize;
+}
+
+static FontSource* FindFontSource(const std::string& fontPath, float fontSize, bool useSdf) {
+    for (FontSource& source : FontSources) {
+        if (source.Path == fontPath &&
+            std::abs(source.PixelSize - fontSize) < 0.001f &&
+            source.UseSdf == useSdf) {
+            return &source;
+        }
+    }
+    return nullptr;
+}
+
+static bool EnsureFontSourceLoaded(FontSource& source) {
+    if (source.Loaded) {
+        return true;
+    }
+
+    std::ifstream file(source.Path, std::ios::binary | std::ios::ate);
+    if (!file.is_open()) {
+        return false;
+    }
+    const std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    source.Buffer.resize(static_cast<std::size_t>(size));
+    if (!file.read(reinterpret_cast<char*>(source.Buffer.data()), size)) {
+        source.Buffer.clear();
+        return false;
+    }
+
+    const int fontOffset = std::max(0, stbtt_GetFontOffsetForIndex(source.Buffer.data(), 0));
+    if (!stbtt_InitFont(&source.Info, source.Buffer.data(), fontOffset)) {
+        source.Buffer.clear();
+        return false;
+    }
+
+    source.Loaded = true;
+    return true;
+}
+
+static FontSource* RegisterFontSourceInternal(const std::string& fontPath, float fontSize, bool useSdf,
+                                              bool loadImmediately) {
+    if (FontSource* existing = FindFontSource(fontPath, fontSize, useSdf)) {
+        return (!loadImmediately || EnsureFontSourceLoaded(*existing)) ? existing : nullptr;
+    }
+
+    if (!loadImmediately) {
+        std::ifstream file(fontPath, std::ios::binary);
+        if (!file.is_open()) {
+            return nullptr;
+        }
+    }
+
+    FontSource source;
+    source.Path = fontPath;
+    source.PixelSize = fontSize;
+    source.UseSdf = useSdf;
+    if (loadImmediately && !EnsureFontSourceLoaded(source)) {
+        return nullptr;
+    }
+
+    FontSources.push_back(std::move(source));
+    return &FontSources.back();
+}
+
+static bool LoadCharacterFromSource(FontSource& source, unsigned int codepoint) {
+    if (Characters.find(codepoint) != Characters.end()) {
+        return true;
+    }
+    if (!EnsureFontSourceLoaded(source)) {
+        return false;
+    }
+    if (stbtt_FindGlyphIndex(&source.Info, codepoint) == 0) {
+        return false;
+    }
+
+    const float scale = stbtt_ScaleForPixelHeight(&source.Info, source.PixelSize);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    int renderWidth = 0;
+    int renderHeight = 0;
+    int renderXoff = 0;
+    int renderYoff = 0;
+    unsigned char* bitmap = nullptr;
+    if (source.UseSdf) {
+        bitmap = stbtt_GetCodepointSDF(&source.Info, scale, codepoint, kTextSdfPadding,
+                                       kTextSdfOnEdgeValue, kTextSdfPixelDistScale,
+                                       &renderWidth, &renderHeight, &renderXoff, &renderYoff);
+    } else {
+        bitmap = stbtt_GetCodepointBitmap(&source.Info, scale, scale, codepoint,
+                                          &renderWidth, &renderHeight, &renderXoff, &renderYoff);
+    }
+    if (!bitmap) {
+        return false;
+    }
+
+    int visibleX0 = 0;
+    int visibleY0 = 0;
+    int visibleX1 = 0;
+    int visibleY1 = 0;
+    stbtt_GetCodepointBitmapBox(&source.Info, codepoint, scale, scale,
+                                &visibleX0, &visibleY0, &visibleX1, &visibleY1);
+
+    int advance = 0;
+    int lsb = 0;
+    stbtt_GetCodepointHMetrics(&source.Info, codepoint, &advance, &lsb);
+
+    GLuint texture = 0;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, renderWidth, renderHeight, 0, GL_RED, GL_UNSIGNED_BYTE, bitmap);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    const bool useMipmaps = !source.UseSdf && source.PixelSize >= 48.0f;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, useMipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    if (useMipmaps) {
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    Characters[codepoint] = {
+        texture,
+        {static_cast<float>(renderWidth), static_cast<float>(renderHeight)},
+        {static_cast<float>(renderXoff), static_cast<float>(renderYoff)},
+        {static_cast<float>(std::max(0, visibleX1 - visibleX0)), static_cast<float>(std::max(0, visibleY1 - visibleY0))},
+        {static_cast<float>(visibleX0), static_cast<float>(visibleY0)},
+        advance * scale,
+        source.PixelSize,
+        source.UseSdf
+    };
+
+    if (source.UseSdf) {
+        stbtt_FreeSDF(bitmap, nullptr);
+    } else {
+        stbtt_FreeBitmap(bitmap, nullptr);
+    }
+
+    TextWidthCache.clear();
+    return true;
+}
+
+static bool EnsureCharacterLoaded(unsigned int codepoint) {
+    if (codepoint == ' ' || Characters.find(codepoint) != Characters.end()) {
+        return true;
+    }
+    for (FontSource& source : FontSources) {
+        if (LoadCharacterFromSource(source, codepoint)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool DecodeUtf8Codepoint(const std::string& text, size_t& index, unsigned int& outCodepoint) {
@@ -955,9 +1293,19 @@ in vec2 TexCoords;
 out vec4 color;
 uniform sampler2D text;
 uniform vec4 textColor;
+uniform int textMode;
 void main() {
-    vec4 sampled = vec4(1.0, 1.0, 1.0, texture(text, TexCoords).r);
-    color = textColor * sampled;
+    float sampleValue = texture(text, TexCoords).r;
+    float alpha = sampleValue;
+    if (textMode == 1) {
+        const float edgeValue = 180.0 / 255.0;
+        const float sdfPxRange = 8.0;
+        vec2 unitRange = vec2(sdfPxRange) / vec2(textureSize(text, 0));
+        vec2 screenTexSize = vec2(1.0) / max(fwidth(TexCoords), vec2(0.000001));
+        float screenPxDistance = (sampleValue - edgeValue) * max(0.5 * dot(unitRange, screenTexSize), 1.0);
+        alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
+    }
+    color = vec4(textColor.rgb, textColor.a * alpha);
 }
 )";
 
@@ -972,6 +1320,7 @@ void Renderer::Init() {
     glDeleteShader(fs);
     CachedBlurProgram = CreateProgram(cachedBlurVShaderStr, cachedBlurFShaderStr);
     CompositeProgram = CreateProgram(compositeVShaderStr, compositeFShaderStr);
+    PolygonProgram = CreateProgram(polygonVShaderStr, polygonFShaderStr);
 
     ProjLoc = glGetUniformLocation(ShaderProgram, "projection");
     ColorLoc = glGetUniformLocation(ShaderProgram, "uColor");
@@ -1014,6 +1363,8 @@ void Renderer::Init() {
     CompositeTextureLoc = glGetUniformLocation(CompositeProgram, "uTexture");
     CompositeUVPosLoc = glGetUniformLocation(CompositeProgram, "uUVPos");
     CompositeUVSizeLoc = glGetUniformLocation(CompositeProgram, "uUVSize");
+    PolygonProjLoc = glGetUniformLocation(PolygonProgram, "projection");
+    PolygonColorLoc = glGetUniformLocation(PolygonProgram, "uColor");
 
     glGenTextures(1, &BgTexture);
     glBindTexture(GL_TEXTURE_2D, BgTexture);
@@ -1036,6 +1387,18 @@ void Renderer::Init() {
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    glGenVertexArrays(1, &PolygonVAO);
+    glGenBuffers(1, &PolygonVBO);
+    glBindVertexArray(PolygonVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, PolygonVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 2 * 3, nullptr, GL_DYNAMIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
 
     GLuint tvs = CompileShader(GL_VERTEX_SHADER, textVShaderStr);
     GLuint tfs = CompileShader(GL_FRAGMENT_SHADER, textFShaderStr);
@@ -1048,6 +1411,10 @@ void Renderer::Init() {
 
     TextProjLoc = glGetUniformLocation(TextShaderProgram, "projection");
     TextColorLoc = glGetUniformLocation(TextShaderProgram, "textColor");
+    TextModeLoc = glGetUniformLocation(TextShaderProgram, "textMode");
+    glUseProgram(TextShaderProgram);
+    glUniform1i(glGetUniformLocation(TextShaderProgram, "text"), 0);
+    glUniform1i(TextModeLoc, 1);
 
     glGenVertexArrays(1, &TextVAO);
     glGenBuffers(1, &TextVBO);
@@ -1081,6 +1448,14 @@ void Renderer::Init() {
 }
 
 void Renderer::Shutdown() {
+    for (auto& entry : Characters) {
+        if (entry.second.TextureID) {
+            glDeleteTextures(1, &entry.second.TextureID);
+        }
+    }
+    Characters.clear();
+    TextWidthCache.clear();
+    FontSources.clear();
     for (LayerCache& cache : LayerCaches) {
         if (cache.framebuffer) glDeleteFramebuffers(1, &cache.framebuffer);
         if (cache.texture) glDeleteTextures(1, &cache.texture);
@@ -1096,8 +1471,11 @@ void Renderer::Shutdown() {
     glDeleteProgram(ShaderProgram);
     glDeleteProgram(CachedBlurProgram);
     glDeleteProgram(CompositeProgram);
+    glDeleteProgram(PolygonProgram);
     glDeleteVertexArrays(1, &CompositeVAO);
     glDeleteBuffers(1, &CompositeVBO);
+    glDeleteVertexArrays(1, &PolygonVAO);
+    glDeleteBuffers(1, &PolygonVBO);
     glDeleteTextures(1, &BgTexture);
     if (CachedBlurTexture) glDeleteTextures(1, &CachedBlurTexture);
 
@@ -1110,14 +1488,14 @@ static GLuint CurrentActiveProgram = 0;
 
 bool Renderer::MakeCurrentScissorRect(const RectFrame& bounds, GLint& outX, GLint& outY, GLint& outW, GLint& outH) {
     if (ActiveCustomSurface) {
-        return MakeLocalScissorRect(ActiveCustomSurfaceBounds, ActiveCustomSurfaceHeight, bounds,
+        return MakeLocalScissorRect(ActiveCustomSurfaceBounds, ActiveCustomSurfaceWidth, ActiveCustomSurfaceHeight, bounds,
                                     outX, outY, outW, outH);
     }
     if (ActiveLayerIndex >= 0) {
         const RenderLayer layer = LayerFromIndex(ActiveLayerIndex);
         const LayerCache& cache = LayerCaches[ActiveLayerIndex];
         if (UsesTightLayerSurface(layer)) {
-            return MakeLocalScissorRect(cache.bounds, cache.height, bounds, outX, outY, outW, outH);
+            return MakeLocalScissorRect(cache.bounds, cache.width, cache.height, bounds, outX, outY, outW, outH);
         }
     }
     return MakeScreenScissorRect(bounds, outX, outY, outW, outH);
@@ -1229,8 +1607,8 @@ void Renderer::DrawCachedSurface(const std::string& key, const RectFrame& bounds
     const int previousCustomSurfaceHeight = ActiveCustomSurfaceHeight;
 
     CachedSurface& cache = CachedSurfaces[key];
-    const int targetW = std::max(1, static_cast<int>(std::ceil(bounds.width)));
-    const int targetH = std::max(1, static_cast<int>(std::ceil(bounds.height)));
+    const int targetW = std::max(1, static_cast<int>(std::ceil(bounds.width * CachedSurfaceSupersampleScale)));
+    const int targetH = std::max(1, static_cast<int>(std::ceil(bounds.height * CachedSurfaceSupersampleScale)));
     const bool boundsChanged =
         !FloatEq(cache.bounds.x, bounds.x) ||
         !FloatEq(cache.bounds.y, bounds.y) ||
@@ -1274,6 +1652,7 @@ void Renderer::DrawCachedSurface(const std::string& key, const RectFrame& bounds
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glViewport(0, 0, std::max(1, (int)State.screenW), std::max(1, (int)State.screenH));
         }
+        BeginFrame();
     }
 
     CompositeTexture(cache.texture, cache.bounds, 0.0f, 0.0f, 1.0f, 1.0f);
@@ -1318,6 +1697,9 @@ void Renderer::BeginFrame() {
 
     glUseProgram(CachedBlurProgram);
     glUniformMatrix4fv(CachedBlurProjLoc, 1, GL_FALSE, proj);
+
+    glUseProgram(PolygonProgram);
+    glUniformMatrix4fv(PolygonProjLoc, 1, GL_FALSE, proj);
 
     glUseProgram(TextShaderProgram);
     glUniformMatrix4fv(TextProjLoc, 1, GL_FALSE, proj);
@@ -1465,56 +1847,76 @@ void Renderer::DrawRect(float x, float y, float w, float h, const Color& color, 
     DrawRect(x, y, w, h, style);
 }
 
-bool Renderer::LoadFont(const std::string& fontPath, float fontSize, unsigned int startChar, unsigned int endChar) {
-    std::ifstream file(fontPath, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) return false;
-    std::streamsize size = file.tellg();
-    file.seekg(0, std::ios::beg);
-    std::vector<unsigned char> buffer(size);
-    if (!file.read((char*)buffer.data(), size)) return false;
+RectBounds Renderer::MeasurePolygonBounds(const std::vector<Point2>& points, float strokeWidth) {
+    return ComputePolygonBounds(points, strokeWidth);
+}
 
-    stbtt_fontinfo font;
-    if (!stbtt_InitFont(&font, buffer.data(), 0)) return false;
-
-    float scale = stbtt_ScaleForPixelHeight(&font, fontSize);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-
-    for (unsigned int c = startChar; c < endChar; ++c) {
-        if (Characters.find(c) != Characters.end()) continue;
-        if (stbtt_FindGlyphIndex(&font, c) == 0) continue;
-
-        int width = 0;
-        int height = 0;
-        int xoff = 0;
-        int yoff = 0;
-        unsigned char* bitmap = stbtt_GetCodepointBitmap(&font, 0, scale, c, &width, &height, &xoff, &yoff);
-        if (!bitmap) continue;
-
-        int advance = 0;
-        int lsb = 0;
-        stbtt_GetCodepointHMetrics(&font, c, &advance, &lsb);
-
-        GLuint texture = 0;
-        glGenTextures(1, &texture);
-        glBindTexture(GL_TEXTURE_2D, texture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, width, height, 0, GL_RED, GL_UNSIGNED_BYTE, bitmap);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-        Characters[c] = {
-            texture,
-            {width, height},
-            {xoff, yoff},
-            (unsigned int)(advance * scale)
-        };
-        stbtt_FreeBitmap(bitmap, nullptr);
+void Renderer::DrawPolygon(const std::vector<Point2>& points, const Color& fillColor,
+                           float strokeWidth, const Color& strokeColor) {
+    if (points.size() < 3) {
+        return;
     }
 
-    glBindTexture(GL_TEXTURE_2D, 0);
-    TextWidthCache.clear();
-    return true;
+    const std::vector<Point2> triangles = TriangulatePolygon(points);
+    if (triangles.empty()) {
+        return;
+    }
+
+    std::vector<float> triangleVertices;
+    triangleVertices.reserve(triangles.size() * 2);
+    for (const Point2& point : triangles) {
+        triangleVertices.push_back(point.x);
+        triangleVertices.push_back(point.y);
+    }
+
+    if (CurrentActiveProgram != PolygonProgram) {
+        glUseProgram(PolygonProgram);
+        CurrentActiveProgram = PolygonProgram;
+    }
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glUniform4f(PolygonColorLoc, fillColor.r, fillColor.g, fillColor.b, fillColor.a);
+    glBindVertexArray(PolygonVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, PolygonVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * triangleVertices.size(), triangleVertices.data(), GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(triangles.size()));
+
+    if (strokeWidth > 0.0f && strokeColor.a > 0.0f) {
+        std::vector<float> outlineVertices;
+        outlineVertices.reserve(points.size() * 2);
+        for (const Point2& point : points) {
+            outlineVertices.push_back(point.x);
+            outlineVertices.push_back(point.y);
+        }
+
+        glUniform4f(PolygonColorLoc, strokeColor.r, strokeColor.g, strokeColor.b, strokeColor.a);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(float) * outlineVertices.size(), outlineVertices.data(), GL_DYNAMIC_DRAW);
+        glLineWidth(std::max(1.0f, strokeWidth));
+        glDrawArrays(GL_LINE_LOOP, 0, static_cast<GLsizei>(points.size()));
+        glLineWidth(1.0f);
+    }
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
+bool Renderer::RegisterFontSource(const std::string& fontPath, float fontSize, bool useSdf) {
+    return RegisterFontSourceInternal(fontPath, fontSize, useSdf, false) != nullptr;
+}
+
+bool Renderer::LoadFont(const std::string& fontPath, float fontSize, unsigned int startChar, unsigned int endChar,
+                        bool useSdf) {
+    FontSource* source = RegisterFontSourceInternal(fontPath, fontSize, useSdf, true);
+    if (!source) {
+        return false;
+    }
+
+    bool loadedAny = startChar >= endChar;
+    for (unsigned int c = startChar; c < endChar; ++c) {
+        loadedAny = LoadCharacterFromSource(*source, c) || loadedAny;
+    }
+    return loadedAny;
 }
 
 void Renderer::DrawTextStr(const std::string& text, float x, float y, const Color& color, float scale,
@@ -1526,6 +1928,10 @@ void Renderer::DrawTextStr(const std::string& text, float x, float y, const Colo
     float finalPivotX = pivotX;
     float finalPivotY = pivotY;
     const bool needsRotation = std::abs(rotationDegrees) > 0.001f;
+    if (!needsRotation) {
+        x = std::round(x);
+        y = std::round(y);
+    }
     if (needsRotation || useCustomPivot) {
         if (!useCustomPivot) {
             const RectFrame bounds = MeasureTextBounds(text, scale);
@@ -1557,17 +1963,19 @@ void Renderer::DrawTextStr(const std::string& text, float x, float y, const Colo
         }
 
         if (c == ' ') {
-            x += 24.0f * 0.3f * scale;
+            x += ResolveRequestedTextPixelSize(scale) * 0.3f;
             continue;
         }
 
-        if (Characters.find(c) == Characters.end()) continue;
-        Character charData = Characters[c];
+        if (!EnsureCharacterLoaded(c)) continue;
+        const Character& charData = Characters[c];
+        const float glyphScale = ResolveCharacterScale(charData, scale);
+        glUniform1i(TextModeLoc, charData.IsSdf ? 1 : 0);
 
-        float xpos = x + charData.Bearing[0] * scale;
-        float ypos = y + charData.Bearing[1] * scale;
-        float w = charData.Size[0] * scale;
-        float h = charData.Size[1] * scale;
+        const float xpos = x + charData.RenderBearing[0] * glyphScale;
+        const float ypos = y + charData.RenderBearing[1] * glyphScale;
+        const float w = charData.RenderSize[0] * glyphScale;
+        const float h = charData.RenderSize[1] * glyphScale;
 
         float vertices[6][4] = {
             { xpos,     ypos + h,   0.0f, 1.0f },
@@ -1594,7 +2002,7 @@ void Renderer::DrawTextStr(const std::string& text, float x, float y, const Colo
         glBindBuffer(GL_ARRAY_BUFFER, TextVBO);
         glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
         glDrawArrays(GL_TRIANGLES, 0, 6);
-        x += charData.Advance * scale;
+        x += charData.Advance * glyphScale;
     }
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
@@ -1621,20 +2029,20 @@ RectFrame Renderer::MeasureTextBounds(const std::string& text, float scale) {
         }
 
         if (c == ' ') {
-            penX += 24.0f * 0.3f * scale;
+            penX += ResolveRequestedTextPixelSize(scale) * 0.3f;
             continue;
         }
 
-        auto it = Characters.find(c);
-        if (it == Characters.end()) {
+        if (!EnsureCharacterLoaded(c)) {
             continue;
         }
 
-        const Character& charData = it->second;
-        const float glyphX = penX + charData.Bearing[0] * scale;
-        const float glyphY = charData.Bearing[1] * scale;
-        const float glyphW = charData.Size[0] * scale;
-        const float glyphH = charData.Size[1] * scale;
+        const Character& charData = Characters[c];
+        const float glyphScale = ResolveCharacterScale(charData, scale);
+        const float glyphX = penX + charData.VisibleBearing[0] * glyphScale;
+        const float glyphY = charData.VisibleBearing[1] * glyphScale;
+        const float glyphW = charData.VisibleSize[0] * glyphScale;
+        const float glyphH = charData.VisibleSize[1] * glyphScale;
 
         if (glyphW > 0.0f && glyphH > 0.0f) {
             if (!hasGlyphBounds) {
@@ -1651,7 +2059,7 @@ RectFrame Renderer::MeasureTextBounds(const std::string& text, float scale) {
             }
         }
 
-        penX += charData.Advance * scale;
+        penX += charData.Advance * glyphScale;
     }
 
     if (!hasGlyphBounds) {
@@ -1680,10 +2088,11 @@ float Renderer::MeasureTextWidth(const std::string& text, float scale) {
             continue;
         }
 
-        if (Characters.find(c) != Characters.end()) {
-            width += Characters[c].Advance * scale;
+        if (EnsureCharacterLoaded(c)) {
+            const Character& charData = Characters[c];
+            width += charData.Advance * ResolveCharacterScale(charData, scale);
         } else if (c == ' ') {
-            width += 24.0f * 0.3f * scale;
+            width += ResolveRequestedTextPixelSize(scale) * 0.3f;
         }
     }
 

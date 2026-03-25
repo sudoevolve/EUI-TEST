@@ -292,8 +292,8 @@ inline void SidebarNode::draw() {
 
         float iconX = frame.x + 16.0f;
         if (!showLabels) {
-            const float iconWidth = Renderer::MeasureTextWidth(items_[index].icon, iconScale);
-            iconX = frame.x + (frame.width - iconWidth) * 0.5f;
+            const RectFrame iconBounds = Renderer::MeasureTextBounds(items_[index].icon, iconScale);
+            iconX = frame.x + (frame.width - iconBounds.width) * 0.5f - iconBounds.x;
         }
 
         Renderer::DrawTextStr(items_[index].icon, iconX, frame.y + frame.height * 0.5f + 8.0f, iconColor, iconScale);
@@ -316,8 +316,8 @@ inline void SidebarNode::draw() {
     const float iconScale = 18.0f / 24.0f;
     float iconX = toggleFrame.x + 16.0f;
     if (!showLabels) {
-        const float moonWidth = Renderer::MeasureTextWidth("\xEF\x86\x86", iconScale);
-        iconX = toggleFrame.x + (toggleFrame.width - moonWidth) * 0.5f;
+        const RectFrame iconBounds = Renderer::MeasureTextBounds("\xEF\x86\x86", iconScale);
+        iconX = toggleFrame.x + (toggleFrame.width - iconBounds.width) * 0.5f - iconBounds.x;
     }
     const float iconY = toggleFrame.y + toggleFrame.height * 0.5f + 7.0f;
     const Color iconColor = withAlpha(CurrentTheme->text, 0.96f);

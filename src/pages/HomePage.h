@@ -196,6 +196,7 @@ public:
             .size(rightFieldWidth, visuals.fieldHeight)
             .placeholder("Select an option")
             .fontSize(20.0f)
+            .startOpen(true)
             .items(comboItems)
             .selected(comboSelection)
             .onChange([action = actions.onComboChange](int index) {

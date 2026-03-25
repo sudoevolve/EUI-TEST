@@ -113,7 +113,7 @@ private:
 
                 ui.label(idPrefix + ".note")
                     .text("Vertical stack. Auto fill width.")
-                    .fontSize(14.0f)
+                    .fontSize(18.0f)
                     .color(visuals.bodyColor)
                     .build();
 
@@ -150,7 +150,7 @@ private:
 
                 ui.label(idPrefix + ".note")
                     .text("flex(n) splits remaining space.")
-                    .fontSize(14.0f)
+                    .fontSize(18.0f)
                     .color(visuals.bodyColor)
                     .build();
 

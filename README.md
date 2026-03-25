@@ -8,6 +8,8 @@ EUI-NEO 是一个基于 OpenGL + GLFW 的声明式 2D GUI 框架。
 <p align="center">
   <img src="./docs/1.jpg" alt="EUI-NEO Preview 1" width="49%" />
   <img src="./docs/2.jpg" alt="EUI-NEO Preview 2" width="49%" />
+  <img src="./docs/3.jpg" alt="EUI-NEO Preview 3" width="49%" />
+  <img src="./docs/4.jpg" alt="EUI-NEO Preview 4" width="49%" />
 </p>
 
 ## 目录
@@ -38,7 +40,8 @@ EUI-NEO/
 │  │  ├─ HomePage.h
 │  │  ├─ LayoutPage.h
 │  │  ├─ MainPage.h
-│  │  └─ MainPageView.h
+│  │  ├─ MainPageView.h
+│  │  └─ TypographyPage.h
 │  ├─ ui/
 │  │  ├─ UIBuilder.h
 │  │  ├─ UIComponents.def
@@ -49,7 +52,7 @@ EUI-NEO/
 │  │  └─ UIPrimitive.h
 │  └─ font/
 │     ├─ Font Awesome 7 Free-Solid-900.otf
-│     └─ Mountain and Nature.ttf
+│     └─ YouSheBiaoTiHei-2.ttf
 └─ CMakeLists.txt
 ```
 
@@ -68,6 +71,10 @@ EUI-NEO/
   - `row() / column() / flex()` 最小示例页
   - 一个滑条控制左右 `flex` 比例
   - 用来测试底层布局 DSL
+
+- `Typography`
+  - SDF 文本预览页
+  - 展示不同字号、混排文本和图标字体效果
 
 ## 编译
 
@@ -97,6 +104,53 @@ while (!glfwWindowShouldClose(window)) {
 }
 ```
 
+## 字体与回退
+
+字体加载入口也在 `main.cpp`，当前主要配置是：
+
+```cpp
+constexpr const char* kUIFontFile = "YouSheBiaoTiHei-2.ttf";
+constexpr const char* kIconFontFile = "Font Awesome 7 Free-Solid-900.otf";
+constexpr float kUiSdfLoadSize = 72.0f;
+constexpr float kIconSdfLoadSize = 96.0f;
+constexpr float kCjkSdfLoadSize = 72.0f;
+```
+
+项目字体默认会从下面两个目录里找：
+
+- `src/font/`
+- `font/`
+
+如果你要改主文本字体：
+
+1. 把字体文件放到 `src/font/`
+2. 修改 `main.cpp` 里的 `kUIFontFile`
+3. 按需要调整 `kUiSdfLoadSize`
+
+如果你要改图标字体：
+
+1. 把图标字体放到 `src/font/`
+2. 修改 `main.cpp` 里的 `kIconFontFile`
+3. 按需要调整 `main.cpp` 里预加载的 icon codepoint
+
+当前文本渲染约定：
+
+- 普通文本走 SDF
+- 图标字体走普通 bitmap alpha，不走 SDF
+
+当前默认系统字体回退：
+
+- 主 UI 字体文件如果加载失败，会按下面顺序回退：
+  - `C:/Windows/Fonts/msyh.ttc`
+  - `C:/Windows/Fonts/arial.ttf`
+- 中文缺字回退使用：
+  - `C:/Windows/Fonts/msyh.ttc`
+
+当前中文缺字回退是延迟加载：
+
+- 启动时不会直接把 `msyh.ttc` 整包读进内存
+- 只有项目字体缺某个字时，才会加载 `msyh.ttc` 并生成对应 glyph
+
 ## 页面写法
 
 页面层目标是只写布局和声明，不回流到组件内部实现。
@@ -113,6 +167,7 @@ ui.sidebar("sidebar")
     .item("\xEF\x80\x95", "Home", [this] { SwitchView(MainPageView::Home); })
     .item("\xEF\x81\x8B", "Animation", [this] { SwitchView(MainPageView::Animation); })
     .item("\xEF\x80\x89", "Layout", [this] { SwitchView(MainPageView::Layout); })
+    .item("\xEF\x80\xB1", "Typography", [this] { SwitchView(MainPageView::Typography); })
     .themeToggle([this] { ToggleTheme(); })
     .build();
 
@@ -127,6 +182,7 @@ ui.end();
 - `src/pages/HomePage.h`
 - `src/pages/AnimationPage.h`
 - `src/pages/LayoutPage.h`
+- `src/pages/TypographyPage.h`
 
 ## Row / Column / Flex
 
@@ -279,3 +335,120 @@ EUI_UI_COMPONENT(templateCard, TemplateCardNode)
 
 - `docs/ui_dsl_analysis.md`
 - `docs/gpui_full_redraw_optimization.md`
+
+## Polygon
+
+`ui.polygon("id")` 用来做自定义形状，顶点通过 `points({...})` 提供。
+
+- `points` 里的坐标是当前节点内部的归一化坐标
+- `Point2{0.0f, 0.0f}` 是左上角
+- `Point2{1.0f, 1.0f}` 是右下角
+- `3` 个点就是三角形
+- `4+` 个点可以做更多多边形
+
+最简单的三角形：
+
+```cpp
+ui.polygon("triangle")
+    .position(420.0f, 180.0f)
+    .size(72.0f, 64.0f)
+    .background(CurrentTheme->primary)
+    .points({
+        Point2{0.50f, 0.00f},
+        Point2{1.00f, 1.00f},
+        Point2{0.00f, 1.00f},
+    })
+    .build();
+```
+
+`polygon` 和 `panel` 一样，也支持：
+
+- `.background()`
+- `.border()`
+- `.opacity()`
+- `.rotation()`
+- `.animate*()` / `.hover*()`
+
+## Theme Token
+
+页面如果要和现有界面保持一致，不要直接写死字号、颜色、间距，优先从 `src/ui/ThemeTokens.h` 取 token。
+
+页面层常用入口：
+
+```cpp
+const PageVisualTokens visuals = CurrentPageVisuals();
+```
+
+常用字段：
+
+- 字号：`visuals.headerTitleSize`、`visuals.headerSubtitleSize`、`visuals.labelSize`
+- 间距：`visuals.sectionGap`、`visuals.sectionInset`
+- 卡片：`visuals.cardColor`、`visuals.mutedCardColor`、`visuals.sectionRounding`
+- 颜色：`visuals.titleColor`、`visuals.subtitleColor`、`visuals.bodyColor`
+
+如果是组件或基础图元颜色，直接用：
+
+```cpp
+CurrentTheme->primary
+CurrentTheme->surface
+CurrentTheme->text
+CurrentTheme->border
+```
+
+页面里推荐这样写：
+
+```cpp
+const PageVisualTokens visuals = CurrentPageVisuals();
+
+ui.label("title")
+    .text("Demo")
+    .position(bounds.x, bounds.y + visuals.headerTopInset)
+    .fontSize(visuals.headerTitleSize)
+    .color(visuals.titleColor)
+    .build();
+```
+
+## 基础图元形状动画
+
+当前最基础的形状就是：
+
+- `ui.panel`：矩形 / 圆角矩形
+- `ui.polygon`：三角形 / 多边形
+
+动画 DSL 分两种：
+
+- 循环动画：`.animateScale()`、`.animateRotation()`、`.animateOpacity()`、`.animateTranslateX()`、`.animateTranslateY()`、`.animateBackground()`
+- Hover 动画：`.hoverScale()`、`.hoverRotation()`、`.hoverOpacity()`、`.hoverTranslateX()`、`.hoverTranslateY()`、`.hoverBackground()`
+
+`panel` hover 示例：
+
+```cpp
+ui.panel("card")
+    .position(120.0f, 160.0f)
+    .size(120.0f, 72.0f)
+    .background(CurrentTheme->primary)
+    .rounding(16.0f)
+    .hoverScale(1.0f, 1.08f, 0.18f)
+    .hoverTranslateY(0.0f, -6.0f, 0.18f)
+    .hoverOpacity(0.72f, 1.0f, 0.18f)
+    .build();
+```
+
+`polygon` hover 示例：
+
+```cpp
+ui.polygon("triangle.spin")
+    .position(320.0f, 160.0f)
+    .size(72.0f, 64.0f)
+    .background(CurrentTheme->primary)
+    .points({
+        Point2{0.50f, 0.00f},
+        Point2{1.00f, 1.00f},
+        Point2{0.00f, 1.00f},
+    })
+    .hoverRotation(-12.0f, 12.0f, 0.18f)
+    .hoverOpacity(0.45f, 1.0f, 0.18f)
+    .build();
+```
+
+如果不需要 hover，直接把 `hover*` 改成 `animate*` 就可以做循环播放。

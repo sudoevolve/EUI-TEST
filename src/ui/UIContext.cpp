@@ -459,7 +459,7 @@ void UIContext::draw() {
         if (!node->visible() || node->renderLayer() == RenderLayer::Backdrop) {
             continue;
         }
-        if (node->primitive().blur <= 0.0f) {
+        if (node->primitive().blur <= 0.0f && node->usesCachedSurface()) {
             const RectFrame bounds = node->paintBounds();
             Renderer::DrawCachedSurface(node->key(), bounds, node->cacheDirty(), [node]() {
                 node->draw();

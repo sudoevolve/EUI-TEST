@@ -10,247 +10,8 @@
 
 namespace EUINEO {
 
-class AnimationCardNode : public UINode {
-public:
-    class Builder : public UIBuilderBase<AnimationCardNode, Builder> {
-    public:
-        Builder(UIContext& context, AnimationCardNode& node)
-            : UIBuilderBase<AnimationCardNode, Builder>(context, node) {}
-
-        Builder& specIndex(int value) {
-            this->node_.trackComposeValue("specIndex", value);
-            this->node_.specIndex_ = value;
-            return *this;
-        }
-    };
-
-    explicit AnimationCardNode(const std::string& key) : UINode(key) {
-        hoverAnimation_.Bind(&hoverAmount_);
-        burstAnimation_.Bind(&burstAmount_);
-        resetDefaults();
-    }
-
-    static constexpr const char* StaticTypeName() {
-        return "AnimationCardNode";
-    }
-
-    const char* typeName() const override {
-        return StaticTypeName();
-    }
-
-    bool wantsContinuousUpdate() const override {
-        return hoverAnimation_.IsActive() || burstAnimation_.IsActive();
-    }
-
-    void setSpecIndex(int value) {
-        specIndex_ = value;
-    }
-
-    RectFrame paintBounds() const override {
-        return expandPrimitivePaintBounds(12.0f, 14.0f, 12.0f, 10.0f);
-    }
-
-    void update() override {
-        const RectFrame frame = PrimitiveFrame(primitive_);
-        const bool hovered = primitive_.enabled &&
-                             State.mouseX >= frame.x && State.mouseX <= frame.x + frame.width &&
-                             State.mouseY >= frame.y && State.mouseY <= frame.y + frame.height;
-        bool needsRepaint = false;
-
-        if (hovered != hovered_) {
-            hovered_ = hovered;
-            hoverAnimation_.PlayTo(hovered ? 1.0f : 0.0f, 0.18f, hovered ? Easing::EaseOut : Easing::EaseInOut);
-            needsRepaint = true;
-        }
-
-        if (hovered && State.mouseClicked) {
-            burstAnimation_.PlayTo(1.0f, 0.10f, Easing::EaseOut);
-            burstAnimation_.Queue(0.0f, 0.18f, Easing::EaseInOut);
-            needsRepaint = true;
-        }
-
-        if (hoverAnimation_.Update(State.deltaTime)) {
-            needsRepaint = true;
-        }
-        if (burstAnimation_.Update(State.deltaTime)) {
-            needsRepaint = true;
-        }
-
-        if (needsRepaint) {
-            requestVisualRepaint();
-        }
-    }
-
-    void draw() override {
-        PrimitiveClipScope clip(primitive_);
-        const RectFrame panelFrame = PrimitiveFrame(primitive_);
-        const CardSpec& spec = CardSpecs()[std::clamp(specIndex_, 0, static_cast<int>(CardSpecs().size()) - 1)];
-        const bool dark = CurrentTheme == &DarkTheme;
-        const float hover = std::clamp(hoverAmount_, 0.0f, 1.0f);
-        const float burst = std::clamp(burstAmount_, 0.0f, 1.0f);
-        const float panelLift = hover * -4.0f + burst * -3.0f;
-        const RectFrame sampleFrame = SampleFrame(panelFrame);
-        const float sampleLift = specIndex_ == 3 ? hover * -6.0f + burst * -4.0f : 0.0f;
-
-        Renderer::DrawRect(
-            panelFrame.x,
-            panelFrame.y + panelLift,
-            panelFrame.width,
-            panelFrame.height,
-            CurrentTheme->surface,
-            16.0f
-        );
-
-        Renderer::DrawTextStr(
-            spec.title,
-            panelFrame.x + 24.0f,
-            panelFrame.y + 40.0f + panelLift,
-            Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.96f),
-            23.0f / 24.0f
-        );
-
-        Renderer::DrawTextStr(
-            spec.detailLine1,
-            panelFrame.x + 24.0f,
-            panelFrame.y + 72.0f + panelLift,
-            Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.66f),
-            15.0f / 24.0f
-        );
-
-        Renderer::DrawTextStr(
-            spec.detailLine2,
-            panelFrame.x + 24.0f,
-            panelFrame.y + 90.0f + panelLift,
-            Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.66f),
-            15.0f / 24.0f
-        );
-
-        const float badgeScale = 14.0f / 24.0f;
-        const float badgeTextWidth = Renderer::MeasureTextWidth(spec.badge, badgeScale);
-        const float badgeX = panelFrame.x + 24.0f;
-        const float badgeY = panelFrame.y + panelFrame.height - 38.0f + panelLift;
-
-        Renderer::DrawRect(
-            badgeX,
-            badgeY,
-            badgeTextWidth + 24.0f,
-            24.0f,
-            CurrentTheme->surfaceHover,
-            10.0f
-        );
-
-        Renderer::DrawTextStr(
-            spec.badge,
-            badgeX + 12.0f,
-            badgeY + 16.5f,
-            Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.82f),
-            badgeScale
-        );
-
-        const SampleVisual sample = MakeSampleVisual(specIndex_, hover, burst, dark);
-        RectStyle sampleStyle;
-        sampleStyle.color = sample.color;
-        sampleStyle.gradient = sample.gradient;
-        sampleStyle.rounding = 12.0f;
-        sampleStyle.transform.translateY = panelLift + sampleLift;
-        sampleStyle.transform.scaleX = sample.scaleX;
-        sampleStyle.transform.scaleY = sample.scaleY;
-        sampleStyle.transform.rotationDegrees = sample.rotation;
-        Renderer::DrawRect(sampleFrame.x, sampleFrame.y, sampleFrame.width, sampleFrame.height, sampleStyle);
-    }
-
-protected:
-    void resetDefaults() override {
-        primitive_ = UIPrimitive{};
-        primitive_.width = 240.0f;
-        primitive_.height = 180.0f;
-        specIndex_ = 0;
-    }
-
-private:
-    struct CardSpec {
-        const char* title;
-        const char* detailLine1;
-        const char* detailLine2;
-        const char* badge;
-    };
-
-    struct SampleVisual {
-        Color color = Color(1.0f, 1.0f, 1.0f, 1.0f);
-        RectGradient gradient;
-        float scaleX = 1.0f;
-        float scaleY = 1.0f;
-        float rotation = 0.0f;
-    };
-
-    static const std::array<CardSpec, 4>& CardSpecs() {
-        static const std::array<CardSpec, 4> specs{{
-            {"Fade Alpha", "Use color.a to control", "the fill opacity.", "Color.a"},
-            {"Uniform Scale", "Scale both axes together", "for lift and focus.", "scaleX = scaleY"},
-            {"Axis Stretch", "Animate scaleX / scaleY", "for directional stretch.", "scaleX / scaleY"},
-            {"Queue + Combo", "Blend move, rotate, scale", "and gradient in queue.", "PlayTo + Queue"},
-        }};
-        return specs;
-    }
-
-    static RectFrame SampleFrame(const RectFrame& panelFrame) {
-        RectFrame frame;
-        frame.width = std::min(84.0f, panelFrame.width * 0.24f);
-        frame.height = std::min(56.0f, panelFrame.height * 0.30f);
-        frame.x = panelFrame.x + panelFrame.width - frame.width - 26.0f;
-
-        const float desiredY = panelFrame.y + panelFrame.height * 0.58f - frame.height * 0.5f;
-        const float minY = panelFrame.y + panelFrame.height * 0.38f;
-        const float maxY = panelFrame.y + panelFrame.height - frame.height - std::max(28.0f, panelFrame.height * 0.18f);
-        frame.y = maxY >= minY ? std::clamp(desiredY, minY, maxY) : desiredY;
-        return frame;
-    }
-
-    static SampleVisual MakeSampleVisual(int index, float hover, float burst, bool dark) {
-        SampleVisual visual;
-        visual.color = CurrentTheme->primary;
-
-        if (index == 0) {
-            const float baseAlpha = dark ? 0.36f : 0.48f;
-            visual.color.a = Lerp(baseAlpha, 1.0f, std::clamp(hover + burst * 0.6f, 0.0f, 1.0f));
-        } else if (index == 1) {
-            visual.scaleX = 1.0f + hover * 0.18f + burst * 0.08f;
-            visual.scaleY = 1.0f + hover * 0.18f + burst * 0.08f;
-        } else if (index == 2) {
-            visual.scaleX = 1.0f + hover * 0.26f + burst * 0.06f;
-            visual.scaleY = 1.0f - hover * 0.22f - burst * 0.06f;
-        } else {
-            const float combo = std::clamp(hover + burst * 0.8f, 0.0f, 1.0f);
-            visual.scaleX = 1.0f + hover * 0.10f + burst * 0.08f;
-            visual.scaleY = 1.0f + hover * 0.10f + burst * 0.08f;
-            visual.rotation = hover * 10.0f + burst * 8.0f;
-            visual.gradient = RectGradient::Vertical(
-                Lerp(CurrentTheme->primary, Color(1.0f, 1.0f, 1.0f, 1.0f), dark ? 0.10f + combo * 0.14f : 0.20f + combo * 0.04f),
-                Lerp(CurrentTheme->primary, Color(0.0f, 0.0f, 0.0f, 1.0f), dark ? 0.18f + combo * 0.06f : 0.10f + combo * 0.04f)
-            );
-        }
-
-        return visual;
-    }
-
-    int specIndex_ = 0;
-    bool hovered_ = false;
-    float hoverAmount_ = 0.0f;
-    float burstAmount_ = 0.0f;
-    FloatAnimation hoverAnimation_;
-    FloatAnimation burstAnimation_;
-};
-
 class AnimationPage {
 public:
-    struct Layout {
-        float gap = 18.0f;
-        float topOffset = 98.0f;
-        int columns = 1;
-        float cardWidth = 0.0f;
-        float cardHeight = 0.0f;
-    };
-
     static void Compose(UIContext& ui, const std::string& idPrefix, const RectFrame& bounds) {
         if (bounds.width <= 0.0f || bounds.height <= 0.0f) {
             return;
@@ -261,21 +22,54 @@ public:
             idPrefix,
             bounds,
             "Animation Page",
-            "Hover cards to preview rect property tracks. Click for a queued burst."
+            "Hover cards to preview DSL tracks. The samples use ui.panel / ui.polygon directly."
         );
-        const Layout layout = MakeLayout(bounds, header.contentY);
 
-        for (int index = 0; index < 4; ++index) {
-            const RectFrame frame = CardFrame(bounds, layout, header.contentY, index);
-            ui.node<AnimationCardNode>(idPrefix + ".card" + std::to_string(index))
-                .position(frame.x, frame.y)
-                .size(frame.width, frame.height)
-                .call(&AnimationCardNode::setSpecIndex, index)
-                .build();
+        const Layout layout = MakeLayout(bounds, header.contentY);
+        for (int index = 0; index < static_cast<int>(Cards().size()); ++index) {
+            ComposeCard(
+                ui,
+                idPrefix + ".card." + std::to_string(index),
+                CardFrame(bounds, layout, header.contentY, index),
+                Cards()[index]
+            );
         }
     }
 
 private:
+    enum class SampleKind {
+        Fade,
+        Scale,
+        Move,
+        Rotate
+    };
+
+    struct CardSpec {
+        const char* title;
+        const char* line1;
+        const char* line2;
+        const char* badge;
+        SampleKind kind;
+    };
+
+    struct Layout {
+        float gap = 18.0f;
+        float topOffset = 98.0f;
+        int columns = 1;
+        float cardWidth = 0.0f;
+        float cardHeight = 0.0f;
+    };
+
+    static const std::array<CardSpec, 4>& Cards() {
+        static const std::array<CardSpec, 4> cards{{
+            {"Fade Alpha", "Hover sample to fade between", "two opacity states.", ".hoverOpacity()", SampleKind::Fade},
+            {"Uniform Scale", "Hover sample to scale", "both axes together.", ".hoverScale()", SampleKind::Scale},
+            {"Move XY", "Hover sample to shift", "x / y with one builder.", ".hoverTranslate*", SampleKind::Move},
+            {"Triangle Rotate", "Hover sample to rotate triangle", "and blend plate color.", "panel + polygon", SampleKind::Rotate},
+        }};
+        return cards;
+    }
+
     static Layout MakeLayout(const RectFrame& bounds, float contentY) {
         Layout layout;
         layout.topOffset = std::max(0.0f, contentY - bounds.y);
@@ -290,14 +84,145 @@ private:
     }
 
     static RectFrame CardFrame(const RectFrame& bounds, const Layout& layout, float contentY, int index) {
-        RectFrame frame;
-        const int col = index % layout.columns;
+        const int column = index % layout.columns;
         const int row = index / layout.columns;
-        frame.x = bounds.x + col * (layout.cardWidth + layout.gap);
-        frame.y = contentY + row * (layout.cardHeight + layout.gap);
-        frame.width = layout.cardWidth;
-        frame.height = layout.cardHeight;
+        return RectFrame{
+            bounds.x + column * (layout.cardWidth + layout.gap),
+            contentY + row * (layout.cardHeight + layout.gap),
+            layout.cardWidth,
+            layout.cardHeight
+        };
+    }
+
+    static RectFrame SampleFrame(const RectFrame& cardFrame) {
+        RectFrame frame;
+        frame.width = std::min(84.0f, cardFrame.width * 0.24f);
+        frame.height = std::min(56.0f, cardFrame.height * 0.30f);
+        frame.x = cardFrame.x + cardFrame.width - frame.width - 26.0f;
+
+        const float desiredY = cardFrame.y + cardFrame.height * 0.58f - frame.height * 0.5f;
+        const float minY = cardFrame.y + cardFrame.height * 0.38f;
+        const float maxY = cardFrame.y + cardFrame.height - frame.height - std::max(28.0f, cardFrame.height * 0.18f);
+        frame.y = maxY >= minY ? std::clamp(desiredY, minY, maxY) : desiredY;
         return frame;
+    }
+
+    static void ComposeBadge(UIContext& ui, const std::string& idPrefix, const PageVisualTokens& visuals,
+                             float x, float y, const std::string& text) {
+        const float badgeSize = std::max(14.0f, visuals.labelSize - 1.0f);
+        const float scale = badgeSize / 24.0f;
+        const float width = Renderer::MeasureTextWidth(text, scale);
+        ui.panel(idPrefix + ".bg")
+            .position(x, y)
+            .size(width + 20.0f, badgeSize + 12.0f)
+            .background(CurrentTheme->surfaceHover)
+            .rounding(10.0f)
+            .build();
+
+        ui.label(idPrefix + ".label")
+            .text(text)
+            .position(x + 10.0f, y + badgeSize + 3.0f)
+            .fontSize(badgeSize)
+            .color(Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.82f))
+            .build();
+    }
+
+    static void ComposeCard(UIContext& ui, const std::string& idPrefix, const RectFrame& frame, const CardSpec& card) {
+        const PageVisualTokens visuals = CurrentPageVisuals();
+        const Color accent = CurrentTheme->primary;
+        const bool dark = CurrentTheme == &DarkTheme;
+        const RectFrame sampleFrame = SampleFrame(frame);
+        const float sampleCenterX = sampleFrame.x + sampleFrame.width * 0.5f;
+        const float sampleCenterY = sampleFrame.y + sampleFrame.height * 0.5f;
+        const float cardTitleSize = visuals.headerSubtitleSize;
+        const float cardBodySize = visuals.labelSize;
+
+        ui.panel(idPrefix + ".card")
+            .position(frame.x, frame.y)
+            .size(frame.width, frame.height)
+            .background(CurrentTheme->surface)
+            .rounding(16.0f)
+            .build();
+
+        ui.label(idPrefix + ".title")
+            .text(card.title)
+            .position(frame.x + 24.0f, frame.y + 40.0f)
+            .fontSize(cardTitleSize)
+            .color(Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.96f))
+            .build();
+
+        ui.label(idPrefix + ".line1")
+            .text(card.line1)
+            .position(frame.x + 24.0f, frame.y + 72.0f)
+            .fontSize(cardBodySize)
+            .color(Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.66f))
+            .build();
+
+        ui.label(idPrefix + ".line2")
+            .text(card.line2)
+            .position(frame.x + 24.0f, frame.y + 90.0f)
+            .fontSize(cardBodySize)
+            .color(Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.66f))
+            .build();
+
+        ComposeBadge(ui, idPrefix + ".badge", visuals, frame.x + 24.0f, frame.y + frame.height - 38.0f, card.badge);
+
+        switch (card.kind) {
+        case SampleKind::Fade:
+            ui.panel(idPrefix + ".sample.shape")
+                .position(sampleFrame.x, sampleFrame.y)
+                .size(sampleFrame.width, sampleFrame.height)
+                .background(accent.r, accent.g, accent.b, 1.0f)
+                .rounding(12.0f)
+                .hoverOpacity(dark ? 0.36f : 0.48f, 1.0f, 0.18f)
+                .build();
+            break;
+        case SampleKind::Scale:
+            ui.panel(idPrefix + ".sample.shape")
+                .position(sampleFrame.x, sampleFrame.y)
+                .size(sampleFrame.width, sampleFrame.height)
+                .background(accent.r, accent.g, accent.b, 1.0f)
+                .rounding(12.0f)
+                .hoverScale(1.0f, 1.18f, 0.18f)
+                .build();
+            break;
+        case SampleKind::Move:
+            ui.panel(idPrefix + ".sample.shape")
+                .position(sampleFrame.x, sampleFrame.y)
+                .size(sampleFrame.width, sampleFrame.height)
+                .background(accent.r, accent.g, accent.b, 1.0f)
+                .rounding(12.0f)
+                .hoverTranslateX(0.0f, 18.0f, 0.18f)
+                .hoverTranslateY(0.0f, -8.0f, 0.18f)
+                .build();
+            break;
+        case SampleKind::Rotate:
+            ui.panel(idPrefix + ".sample.plate")
+                .position(sampleFrame.x - 10.0f, sampleFrame.y - 6.0f)
+                .size(sampleFrame.width + 20.0f, sampleFrame.height + 12.0f)
+                .background(accent.r, accent.g, accent.b, 0.08f)
+                .rounding(14.0f)
+                .hoverBackground(
+                    Color(accent.r, accent.g, accent.b, 0.08f),
+                    Color(0.16f, 0.82f, 0.66f, 0.18f),
+                    0.18f
+                )
+                .build();
+
+            ui.polygon(idPrefix + ".sample.shape")
+                .position(sampleCenterX - 30.0f, sampleCenterY - 28.0f)
+                .size(60.0f, 56.0f)
+                .background(accent.r, accent.g, accent.b, 0.94f)
+                .points({
+                    Point2{0.50f, 0.00f},
+                    Point2{1.00f, 1.00f},
+                    Point2{0.00f, 1.00f},
+                })
+                .hoverRotation(-16.0f, 16.0f, 0.18f)
+                .hoverOpacity(0.40f, 1.0f, 0.18f)
+                .build();
+            break;
+        }
     }
 };
 

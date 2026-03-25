@@ -125,44 +125,60 @@ int main() {
 
     EUINEO::Renderer::Init();
 
-    constexpr const char* kUIFontFile = "Mountain and Nature.ttf";
+    constexpr const char* kUIFontFile = "YouSheBiaoTiHei-2.ttf";
     constexpr const char* kIconFontFile = "Font Awesome 7 Free-Solid-900.otf";
+    constexpr float kUiSdfLoadSize = 72.0f;
+    constexpr float kIconSdfLoadSize = 96.0f;
+    constexpr float kCjkSdfLoadSize = 72.0f;
 
     const auto loadProjectFont = [](const char* fileName,
                                     float fontSize,
                                     unsigned int startChar,
-                                    unsigned int endChar) {
+                                    unsigned int endChar,
+                                    bool useSdf = true) {
         static const char* kFontDirs[] = {
             "font/",
             "src/font/"
         };
         for (const char* dir : kFontDirs) {
             const std::string path = std::string(dir) + fileName;
-            if (EUINEO::Renderer::LoadFont(path, fontSize, startChar, endChar)) {
+            if (EUINEO::Renderer::LoadFont(path, fontSize, startChar, endChar, useSdf)) {
                 return true;
             }
         }
         return false;
     };
 
+    const auto loadProjectIcon = [&](unsigned int codepoint) {
+        return loadProjectFont(kIconFontFile, kIconSdfLoadSize, codepoint, codepoint + 1, false);
+    };
+
     bool fontLoaded = false;
-    if (loadProjectFont(kUIFontFile, 24.0f, 32, 128)) {
+    if (loadProjectFont(kUIFontFile, kUiSdfLoadSize, 32, 128)) {
         fontLoaded = true;
     }
 
-    loadProjectFont(kIconFontFile, 24.0f, 0xF000, 0xF2FF);
+    loadProjectIcon(0xF009); // grid
+    loadProjectIcon(0xF013); // gear
+    loadProjectIcon(0xF015); // home
+    loadProjectIcon(0xF031); // font
+    loadProjectIcon(0xF04B); // play
+    loadProjectIcon(0xF106); // chevron-up
+    loadProjectIcon(0xF107); // chevron-down
+    loadProjectIcon(0xF185); // sun
+    loadProjectIcon(0xF186); // moon
 
     if (!fontLoaded) {
-        if (EUINEO::Renderer::LoadFont("C:/Windows/Fonts/msyh.ttc", 24.0f, 32, 128)) {
+        if (EUINEO::Renderer::LoadFont("C:/Windows/Fonts/msyh.ttc", kUiSdfLoadSize, 32, 128)) {
             fontLoaded = true;
-        } else if (EUINEO::Renderer::LoadFont("C:/Windows/Fonts/arial.ttf", 24.0f)) {
+        } else if (EUINEO::Renderer::LoadFont("C:/Windows/Fonts/arial.ttf", kUiSdfLoadSize)) {
             fontLoaded = true;
         } else {
             printf("Failed to load fallback font!\n");
         }
     }
 
-    EUINEO::Renderer::LoadFont("C:/Windows/Fonts/msyh.ttc", 24.0f, 0x4E00, 0xA000);
+    EUINEO::Renderer::RegisterFontSource("C:/Windows/Fonts/msyh.ttc", kCjkSdfLoadSize); // Deferred fallback for missing glyphs.
 
     EUINEO::MainPage mainPage{}; // Force recompilation when header-only pages change.
     double lastTime = glfwGetTime();

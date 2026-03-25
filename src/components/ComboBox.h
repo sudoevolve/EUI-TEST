@@ -42,6 +42,17 @@ public:
             return *this;
         }
 
+        Builder& startOpen(bool value) {
+            this->node_.trackComposeValue("startOpen", value);
+            if (!this->node_.openStateInitialized_) {
+                this->node_.isOpen_ = value;
+                this->node_.openAnim_ = value ? 1.0f : 0.0f;
+                this->node_.popupPresentation_ = value;
+                this->node_.openStateInitialized_ = true;
+            }
+            return *this;
+        }
+
         Builder& onChange(std::function<void(int)> handler) {
             this->node_.onChange_ = std::move(handler);
             return *this;
@@ -266,6 +277,7 @@ private:
     float fontSize_ = 20.0f;
     std::function<void(int)> onChange_;
     bool isOpen_ = false;
+    bool openStateInitialized_ = false;
     bool popupPresentation_ = false;
     float hoverAnim_ = 0.0f;
     float openAnim_ = 0.0f;

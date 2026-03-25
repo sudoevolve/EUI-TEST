@@ -48,6 +48,10 @@ public:
 
     void update() override {}
 
+    bool usesCachedSurface() const override {
+        return false;
+    }
+
     RectFrame layoutBounds() const override {
         RectFrame bounds = Renderer::MeasureTextBounds(text_, fontSize_ / 24.0f);
         if (bounds.width <= 0.0f && bounds.height <= 0.0f) {

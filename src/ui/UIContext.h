@@ -6,6 +6,7 @@
 #include "../components/InputBox.h"
 #include "../components/Label.h"
 #include "../components/Panel.h"
+#include "../components/Polygon.h"
 #include "../components/ProgressBar.h"
 #include "../components/ScrollArea.h"
 #include "../components/SegmentedControl.h"

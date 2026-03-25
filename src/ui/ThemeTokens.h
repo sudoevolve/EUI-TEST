@@ -27,7 +27,7 @@ struct PageVisualTokens {
     float headerTitleGap = 30.0f;
     float headerContentGap = 38.0f;
     float headerTitleSize = 31.0f;
-    float headerSubtitleSize = 17.0f;
+    float headerSubtitleSize = 24.0f;
     float sectionGap = 16.0f;
     float sectionInset = 20.0f;
     float sectionRounding = 18.0f;
@@ -115,9 +115,9 @@ inline PageVisualTokens CurrentPageVisuals() {
         Color(palette.primary.r, palette.primary.g, palette.primary.b, 0.16f),
         24.0f,
         30.0f,
-        38.0f,
+        40.0f,
         31.0f,
-        17.0f,
+        20.0f,
         16.0f,
         20.0f,
         18.0f,

@@ -3,6 +3,7 @@
 #include "AnimationPage.h"
 #include "HomePage.h"
 #include "LayoutPage.h"
+#include "TypographyPage.h"
 #include "../ui/UIContext.h"
 #include "MainPageView.h"
 #include <algorithm>
@@ -82,6 +83,7 @@ private:
             .item("\xEF\x80\x95", "Home", [this] { SwitchView(MainPageView::Home); })
             .item("\xEF\x81\x8B", "Animation", [this] { SwitchView(MainPageView::Animation); })
             .item("\xEF\x80\x89", "Layout", [this] { SwitchView(MainPageView::Layout); })
+            .item("\xEF\x80\xB1", "Typography", [this] { SwitchView(MainPageView::Typography); })
             .themeToggle([this] { ToggleTheme(); })
             .build();
 
@@ -226,6 +228,9 @@ private:
             LayoutPage::Compose(ui_, "layout.page", bounds, layoutSplit_, actions);
             break;
         }
+        case MainPageView::Typography:
+            TypographyPage::Compose(ui_, "typography.page", bounds);
+            break;
         }
     }
 
@@ -336,7 +341,7 @@ private:
     float sidebarWidth_ = 86.0f;
     float contentInset_ = 34.0f;
     float progressValue_ = 0.30f;
-    bool homeIconAccentEnabled_ = false;
+    bool homeIconAccentEnabled_ = true;
     std::vector<std::string> segmentedItems_{"Apple", "Banana", "Cherry"};
     int segmentedIndex_ = 0;
     std::string inputText_;

@@ -76,6 +76,11 @@ struct RectFrame {
 
 RectFrame Lerp(const RectFrame& a, const RectFrame& b, float t);
 
+struct Point2 {
+    float x = 0.0f;
+    float y = 0.0f;
+};
+
 struct PanelState {
     RectFrame frame;
     RectStyle style;
@@ -323,9 +328,14 @@ public:
                          float blurAmount = 0.0f, float shadowBlur = 0.0f,
                          float shadowOffsetX = 0.0f, float shadowOffsetY = 0.0f,
                          const Color& shadowColor = Color(0, 0, 0, 0));
+    static RectBounds MeasurePolygonBounds(const std::vector<Point2>& points, float strokeWidth = 0.0f);
+    static void DrawPolygon(const std::vector<Point2>& points, const Color& fillColor,
+                            float strokeWidth = 0.0f, const Color& strokeColor = Color(0, 0, 0, 0));
 
     static bool LoadFont(const std::string& fontPath, float fontSize = 24.0f,
-                         unsigned int startChar = 32, unsigned int endChar = 128);
+                         unsigned int startChar = 32, unsigned int endChar = 128,
+                         bool useSdf = true);
+    static bool RegisterFontSource(const std::string& fontPath, float fontSize = 24.0f, bool useSdf = true);
     static void DrawTextStr(const std::string& text, float x, float y, const Color& color, float scale = 1.0f,
                             float rotationDegrees = 0.0f, float pivotX = 0.0f, float pivotY = 0.0f,
                             bool useCustomPivot = false);
