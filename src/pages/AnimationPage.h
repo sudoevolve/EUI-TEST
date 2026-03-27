@@ -136,6 +136,12 @@ private:
         const float sampleCenterY = sampleFrame.y + sampleFrame.height * 0.5f;
         const float cardTitleSize = visuals.headerSubtitleSize;
         const float cardBodySize = visuals.labelSize;
+        const RectGradient sampleGradient = RectGradient::Corners(
+            Color(std::min(accent.r + 0.18f, 1.0f), std::min(accent.g + 0.14f, 1.0f), std::min(accent.b + 0.08f, 1.0f), 1.0f),
+            Color(std::min(accent.r + 0.28f, 1.0f), std::min(accent.g + 0.08f, 1.0f), std::min(accent.b + 0.24f, 1.0f), 1.0f),
+            Color(std::max(accent.r - 0.08f, 0.0f), std::max(accent.g - 0.14f, 0.0f), std::max(accent.b - 0.02f, 0.0f), 1.0f),
+            Color(std::min(accent.r + 0.06f, 1.0f), std::max(accent.g - 0.10f, 0.0f), std::min(accent.b + 0.20f, 1.0f), 1.0f)
+        );
 
         ui.panel(idPrefix + ".card")
             .position(frame.x, frame.y)
@@ -173,6 +179,7 @@ private:
                 .position(sampleFrame.x, sampleFrame.y)
                 .size(sampleFrame.width, sampleFrame.height)
                 .background(accent.r, accent.g, accent.b, 1.0f)
+                .gradient(sampleGradient)
                 .rounding(12.0f)
                 .hoverOpacity(dark ? 0.36f : 0.48f, 1.0f, 0.18f)
                 .build();
@@ -182,6 +189,7 @@ private:
                 .position(sampleFrame.x, sampleFrame.y)
                 .size(sampleFrame.width, sampleFrame.height)
                 .background(accent.r, accent.g, accent.b, 1.0f)
+                .gradient(sampleGradient)
                 .rounding(12.0f)
                 .hoverScale(1.0f, 1.18f, 0.18f)
                 .build();
@@ -191,6 +199,7 @@ private:
                 .position(sampleFrame.x, sampleFrame.y)
                 .size(sampleFrame.width, sampleFrame.height)
                 .background(accent.r, accent.g, accent.b, 1.0f)
+                .gradient(sampleGradient)
                 .rounding(12.0f)
                 .hoverTranslateX(0.0f, 18.0f, 0.18f)
                 .hoverTranslateY(0.0f, -8.0f, 0.18f)
@@ -213,6 +222,7 @@ private:
                 .position(sampleCenterX - 30.0f, sampleCenterY - 28.0f)
                 .size(60.0f, 56.0f)
                 .background(accent.r, accent.g, accent.b, 0.94f)
+                .gradient(sampleGradient)
                 .points({
                     Point2{0.50f, 0.00f},
                     Point2{1.00f, 1.00f},

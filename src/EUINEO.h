@@ -331,6 +331,8 @@ public:
     static RectBounds MeasurePolygonBounds(const std::vector<Point2>& points, float strokeWidth = 0.0f);
     static void DrawPolygon(const std::vector<Point2>& points, const Color& fillColor,
                             float strokeWidth = 0.0f, const Color& strokeColor = Color(0, 0, 0, 0));
+    static void DrawPolygon(const std::vector<Point2>& points, const Color& fillColor, const RectGradient& gradient,
+                            float strokeWidth = 0.0f, const Color& strokeColor = Color(0, 0, 0, 0));
 
     static bool LoadFont(const std::string& fontPath, float fontSize = 24.0f,
                          unsigned int startChar = 32, unsigned int endChar = 128,

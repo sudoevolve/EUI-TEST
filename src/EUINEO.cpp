@@ -264,6 +264,11 @@ static GLuint PolygonVBO = 0;
 static GLsizeiptr PolygonVBOCapacity = 0;
 static GLint PolygonProjLoc = -1;
 static GLint PolygonColorLoc = -1;
+static GLint PolygonGradientEnabledLoc = -1;
+static GLint PolygonGradientTopLeftLoc = -1;
+static GLint PolygonGradientTopRightLoc = -1;
+static GLint PolygonGradientBottomLeftLoc = -1;
+static GLint PolygonGradientBottomRightLoc = -1;
 static int ActiveLayerIndex = -1;
 static GLuint CurrentActiveProgram = 0;
 static bool ActiveCustomSurface = false;
@@ -477,8 +482,11 @@ void main() {
 static const char* polygonVShaderStr = R"(
 #version 330 core
 layout(location = 0) in vec2 aPos;
+layout(location = 1) in vec2 aUV;
 uniform mat4 projection;
+out vec2 vUV;
 void main() {
+    vUV = aUV;
     gl_Position = projection * vec4(aPos, 0.0, 1.0);
 }
 )";
@@ -486,9 +494,20 @@ void main() {
 static const char* polygonFShaderStr = R"(
 #version 330 core
 uniform vec4 uColor;
+uniform int uGradientEnabled;
+uniform vec4 uGradientTopLeft;
+uniform vec4 uGradientTopRight;
+uniform vec4 uGradientBottomLeft;
+uniform vec4 uGradientBottomRight;
+in vec2 vUV;
 out vec4 FragColor;
+vec4 fillColorAt(vec2 uv) {
+    vec4 top = mix(uGradientTopLeft, uGradientTopRight, clamp(uv.x, 0.0, 1.0));
+    vec4 bottom = mix(uGradientBottomLeft, uGradientBottomRight, clamp(uv.x, 0.0, 1.0));
+    return mix(top, bottom, clamp(uv.y, 0.0, 1.0));
+}
 void main() {
-    FragColor = uColor;
+    FragColor = (uGradientEnabled == 1) ? fillColorAt(vUV) : uColor;
 }
 )";
 
@@ -1066,8 +1085,10 @@ static GLuint TextShaderProgram = 0;
 static GLint TextProjLoc = -1;
 static GLint TextColorLoc = -1;
 static GLint TextModeLoc = -1;
-static constexpr int kTextSdfPadding = 8;
-static constexpr unsigned char kTextSdfOnEdgeValue = 180;
+static GLint TextSdfEdgeLoc = -1;
+static GLint TextSdfPixelRangeLoc = -1;
+static constexpr int kTextSdfPadding = 12;
+static constexpr unsigned char kTextSdfOnEdgeValue = 120;
 static constexpr float kTextSdfPixelDistScale =
     static_cast<float>(kTextSdfOnEdgeValue) / static_cast<float>(kTextSdfPadding);
 
@@ -1304,16 +1325,18 @@ out vec4 color;
 uniform sampler2D text;
 uniform vec4 textColor;
 uniform int textMode;
+uniform float sdfEdgeValue;
+uniform float sdfPxRange;
 void main() {
     float sampleValue = texture(text, TexCoords).r;
     float alpha = sampleValue;
     if (textMode == 1) {
-        const float edgeValue = 180.0 / 255.0;
-        const float sdfPxRange = 8.0;
-        vec2 unitRange = vec2(sdfPxRange) / vec2(textureSize(text, 0));
-        vec2 screenTexSize = vec2(1.0) / max(fwidth(TexCoords), vec2(0.000001));
-        float screenPxDistance = (sampleValue - edgeValue) * max(0.5 * dot(unitRange, screenTexSize), 1.0);
-        alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
+        float signedDistance = sampleValue - sdfEdgeValue;
+        float valueSpread = max(fwidth(sampleValue), 0.0008);
+        alpha = smoothstep(-valueSpread, valueSpread, signedDistance);
+        if (alpha < 0.01) {
+            discard;
+        }
     }
     color = vec4(textColor.rgb, textColor.a * alpha);
 }
@@ -1375,6 +1398,11 @@ void Renderer::Init() {
     CompositeUVSizeLoc = glGetUniformLocation(CompositeProgram, "uUVSize");
     PolygonProjLoc = glGetUniformLocation(PolygonProgram, "projection");
     PolygonColorLoc = glGetUniformLocation(PolygonProgram, "uColor");
+    PolygonGradientEnabledLoc = glGetUniformLocation(PolygonProgram, "uGradientEnabled");
+    PolygonGradientTopLeftLoc = glGetUniformLocation(PolygonProgram, "uGradientTopLeft");
+    PolygonGradientTopRightLoc = glGetUniformLocation(PolygonProgram, "uGradientTopRight");
+    PolygonGradientBottomLeftLoc = glGetUniformLocation(PolygonProgram, "uGradientBottomLeft");
+    PolygonGradientBottomRightLoc = glGetUniformLocation(PolygonProgram, "uGradientBottomRight");
     glUseProgram(ShaderProgram);
     glUniform1i(Channel0Loc, 0);
     glUseProgram(CachedBlurProgram);
@@ -1410,10 +1438,12 @@ void Renderer::Init() {
     glGenBuffers(1, &PolygonVBO);
     glBindVertexArray(PolygonVAO);
     glBindBuffer(GL_ARRAY_BUFFER, PolygonVBO);
-    PolygonVBOCapacity = sizeof(float) * 2 * 3;
+    PolygonVBOCapacity = sizeof(float) * 4 * 3;
     glBufferData(GL_ARRAY_BUFFER, PolygonVBOCapacity, nullptr, GL_DYNAMIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glEnableVertexAttribArray(1);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
@@ -1429,9 +1459,13 @@ void Renderer::Init() {
     TextProjLoc = glGetUniformLocation(TextShaderProgram, "projection");
     TextColorLoc = glGetUniformLocation(TextShaderProgram, "textColor");
     TextModeLoc = glGetUniformLocation(TextShaderProgram, "textMode");
+    TextSdfEdgeLoc = glGetUniformLocation(TextShaderProgram, "sdfEdgeValue");
+    TextSdfPixelRangeLoc = glGetUniformLocation(TextShaderProgram, "sdfPxRange");
     glUseProgram(TextShaderProgram);
     glUniform1i(glGetUniformLocation(TextShaderProgram, "text"), 0);
     glUniform1i(TextModeLoc, 1);
+    glUniform1f(TextSdfEdgeLoc, static_cast<float>(kTextSdfOnEdgeValue) / 255.0f);
+    glUniform1f(TextSdfPixelRangeLoc, static_cast<float>(kTextSdfPadding));
 
     glGenVertexArrays(1, &TextVAO);
     glGenBuffers(1, &TextVBO);
@@ -1865,6 +1899,11 @@ RectBounds Renderer::MeasurePolygonBounds(const std::vector<Point2>& points, flo
 
 void Renderer::DrawPolygon(const std::vector<Point2>& points, const Color& fillColor,
                            float strokeWidth, const Color& strokeColor) {
+    DrawPolygon(points, fillColor, RectGradient{}, strokeWidth, strokeColor);
+}
+
+void Renderer::DrawPolygon(const std::vector<Point2>& points, const Color& fillColor, const RectGradient& gradient,
+                           float strokeWidth, const Color& strokeColor) {
     if (points.size() < 3) {
         return;
     }
@@ -1874,11 +1913,16 @@ void Renderer::DrawPolygon(const std::vector<Point2>& points, const Color& fillC
         return;
     }
 
+    RectBounds fillBounds = ComputePolygonBounds(points, 0.0f);
+    const float invW = fillBounds.w > 0.0001f ? (1.0f / fillBounds.w) : 0.0f;
+    const float invH = fillBounds.h > 0.0001f ? (1.0f / fillBounds.h) : 0.0f;
     std::vector<float> triangleVertices;
-    triangleVertices.reserve(triangles.size() * 2);
+    triangleVertices.reserve(triangles.size() * 4);
     for (const Point2& point : triangles) {
         triangleVertices.push_back(point.x);
         triangleVertices.push_back(point.y);
+        triangleVertices.push_back((point.x - fillBounds.x) * invW);
+        triangleVertices.push_back((point.y - fillBounds.y) * invH);
     }
 
     if (CurrentActiveProgram != PolygonProgram) {
@@ -1889,6 +1933,11 @@ void Renderer::DrawPolygon(const std::vector<Point2>& points, const Color& fillC
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glUniform4f(PolygonColorLoc, fillColor.r, fillColor.g, fillColor.b, fillColor.a);
+    glUniform1i(PolygonGradientEnabledLoc, gradient.enabled ? 1 : 0);
+    glUniform4f(PolygonGradientTopLeftLoc, gradient.topLeft.r, gradient.topLeft.g, gradient.topLeft.b, gradient.topLeft.a);
+    glUniform4f(PolygonGradientTopRightLoc, gradient.topRight.r, gradient.topRight.g, gradient.topRight.b, gradient.topRight.a);
+    glUniform4f(PolygonGradientBottomLeftLoc, gradient.bottomLeft.r, gradient.bottomLeft.g, gradient.bottomLeft.b, gradient.bottomLeft.a);
+    glUniform4f(PolygonGradientBottomRightLoc, gradient.bottomRight.r, gradient.bottomRight.g, gradient.bottomRight.b, gradient.bottomRight.a);
     glBindVertexArray(PolygonVAO);
     glBindBuffer(GL_ARRAY_BUFFER, PolygonVBO);
     const GLsizeiptr triangleBytes = static_cast<GLsizeiptr>(sizeof(float) * triangleVertices.size());
@@ -1901,13 +1950,16 @@ void Renderer::DrawPolygon(const std::vector<Point2>& points, const Color& fillC
 
     if (strokeWidth > 0.0f && strokeColor.a > 0.0f) {
         std::vector<float> outlineVertices;
-        outlineVertices.reserve(points.size() * 2);
+        outlineVertices.reserve(points.size() * 4);
         for (const Point2& point : points) {
             outlineVertices.push_back(point.x);
             outlineVertices.push_back(point.y);
+            outlineVertices.push_back(0.0f);
+            outlineVertices.push_back(0.0f);
         }
 
         glUniform4f(PolygonColorLoc, strokeColor.r, strokeColor.g, strokeColor.b, strokeColor.a);
+        glUniform1i(PolygonGradientEnabledLoc, 0);
         const GLsizeiptr outlineBytes = static_cast<GLsizeiptr>(sizeof(float) * outlineVertices.size());
         if (outlineBytes > PolygonVBOCapacity) {
             PolygonVBOCapacity = outlineBytes;

@@ -217,9 +217,17 @@ public:
     void draw() override {
         const UIPrimitive animatedPrimitive = resolvedPrimitive();
         PrimitiveClipScope clip(animatedPrimitive);
+        RectGradient gradient = animatedPrimitive.gradient;
+        if (gradient.enabled) {
+            gradient.topLeft = ApplyOpacity(gradient.topLeft, animatedPrimitive.opacity);
+            gradient.topRight = ApplyOpacity(gradient.topRight, animatedPrimitive.opacity);
+            gradient.bottomLeft = ApplyOpacity(gradient.bottomLeft, animatedPrimitive.opacity);
+            gradient.bottomRight = ApplyOpacity(gradient.bottomRight, animatedPrimitive.opacity);
+        }
         Renderer::DrawPolygon(
             makeScreenPoints(animatedPrimitive),
             ApplyOpacity(animatedPrimitive.background, animatedPrimitive.opacity),
+            gradient,
             animatedPrimitive.borderWidth,
             ApplyOpacity(animatedPrimitive.borderColor, animatedPrimitive.opacity)
         );

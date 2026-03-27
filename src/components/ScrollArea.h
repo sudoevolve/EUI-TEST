@@ -68,7 +68,7 @@ public:
         const float maxScroll = maxScrollOffset(frame);
         if (scrollOffsetY_ > maxScroll) {
             scrollOffsetY_ = maxScroll;
-            requestComposeRebuild();
+            requestVisualRepaint();
         }
 
         const RectFrame thumb = thumbFrame(frame, maxScroll);
@@ -103,7 +103,7 @@ public:
             if (std::abs(nextOffset - scrollOffsetY_) > 0.01f) {
                 scrollOffsetY_ = nextOffset;
                 scrollChanged = true;
-                requestComposeRebuild();
+                requestVisualRepaint();
             }
         }
 
@@ -113,7 +113,7 @@ public:
             if (std::abs(nextOffset - scrollOffsetY_) > 0.01f) {
                 scrollOffsetY_ = nextOffset;
                 scrollChanged = true;
-                requestComposeRebuild();
+                requestVisualRepaint();
             }
         }
 

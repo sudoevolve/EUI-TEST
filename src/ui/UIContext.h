@@ -171,7 +171,7 @@ private:
             UINode* raw = replacement.get();
             it = nodes_.insert_or_assign(fullKey, std::move(replacement)).first;
             raw->beginCompose(composeStamp_);
-            applyCurrentContext(raw->primitive());
+            applyCurrentContext(raw);
             order_.push_back(raw);
             return static_cast<NodeT&>(*raw);
         }
@@ -181,13 +181,19 @@ private:
             node->beginCompose(composeStamp_);
             order_.push_back(node);
         }
-        applyCurrentContext(node->primitive());
+        applyCurrentContext(node);
         return static_cast<NodeT&>(*node);
     }
 
-    void applyCurrentContext(UIPrimitive& primitive) {
+    void applyCurrentContext(UINode* node) {
+        if (node == nullptr) {
+            return;
+        }
+        UIPrimitive& primitive = node->primitive();
         primitive.contextOffsetX = currentOffsetX_;
         primitive.contextOffsetY = currentOffsetY_;
+        baseContextOffset_[node] = Offset{currentOffsetX_, currentOffsetY_};
+        scrollBindings_[node] = scrollScopeStack_;
         if (clipStack_.empty() || !primitive.clipToParent) {
             primitive.hasClipRect = false;
             primitive.clipRect = UIClipRect{};
@@ -211,6 +217,7 @@ private:
         currentOffsetY_ -= offsetStack_.back().y;
         offsetStack_.pop_back();
     }
+    void applyRuntimeContext(UINode* node);
 
     LayoutState* createLayout(FlexDirection direction);
     void beginLayout(LayoutState* layout);
@@ -236,8 +243,11 @@ private:
     std::vector<UINode*> drawOrder_;
     std::vector<UIClipRect> clipStack_;
     std::vector<Offset> offsetStack_;
+    std::vector<ScrollAreaNode*> scrollScopeStack_;
     std::vector<std::unique_ptr<LayoutState>> ownedLayouts_;
     std::vector<LayoutState*> layoutStack_;
+    std::unordered_map<UINode*, Offset> baseContextOffset_;
+    std::unordered_map<UINode*, std::vector<ScrollAreaNode*>> scrollBindings_;
     mutable std::vector<RectFrame> layerBounds_;
     bool treeChanged_ = false;
     bool needsRecompose_ = false;

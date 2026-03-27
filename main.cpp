@@ -233,7 +233,6 @@ int main() {
                 mainPage.DrawLayer(EUINEO::RenderLayer::Backdrop);
                 EUINEO::Renderer::EndLayer();
             }
-
             EUINEO::Renderer::CompositeLayers(EUINEO::CurrentTheme->background);
             EUINEO::Renderer::BeginFrame();
             mainPage.Draw();

@@ -90,8 +90,11 @@ void UIContext::begin(const std::string& pageId) {
     drawOrderStamp_ = 0;
     clipStack_.clear();
     offsetStack_.clear();
+    scrollScopeStack_.clear();
     ownedLayouts_.clear();
     layoutStack_.clear();
+    baseContextOffset_.clear();
+    scrollBindings_.clear();
     currentOffsetX_ = 0.0f;
     currentOffsetY_ = 0.0f;
     treeChanged_ = false;
@@ -179,13 +182,37 @@ float UIContext::pushScrollArea(const std::string& id, float x, float y, float w
 
     const float scrollOffsetY = node.scrollOffsetY();
     pushClip(x, y, width, height);
-    pushOffset(0.0f, -scrollOffsetY);
+    scrollScopeStack_.push_back(&node);
     return scrollOffsetY;
 }
 
 void UIContext::popScrollArea() {
-    popOffset();
+    if (!scrollScopeStack_.empty()) {
+        scrollScopeStack_.pop_back();
+    }
     popClip();
+}
+
+void UIContext::applyRuntimeContext(UINode* node) {
+    if (node == nullptr) {
+        return;
+    }
+    auto baseIt = baseContextOffset_.find(node);
+    if (baseIt == baseContextOffset_.end()) {
+        return;
+    }
+    float scrollOffsetY = 0.0f;
+    auto bindingIt = scrollBindings_.find(node);
+    if (bindingIt != scrollBindings_.end()) {
+        for (ScrollAreaNode* area : bindingIt->second) {
+            if (area != nullptr) {
+                scrollOffsetY += area->scrollOffsetY();
+            }
+        }
+    }
+    UIPrimitive& primitive = node->primitive();
+    primitive.contextOffsetX = baseIt->second.x;
+    primitive.contextOffsetY = baseIt->second.y - scrollOffsetY;
 }
 
 UIContext::LayoutState* UIContext::createLayout(FlexDirection direction) {
@@ -419,6 +446,7 @@ void UIContext::resolveLayout(LayoutState& layout, const RectFrame& frame) {
 void UIContext::update() {
     bool dirtyLayers[static_cast<std::size_t>(RenderLayer::Count)] = {};
     for (UINode* node : order_) {
+        applyRuntimeContext(node);
         if (node->visible()) {
             node->update();
         }
@@ -456,6 +484,7 @@ void UIContext::draw() {
     }
 
     for (UINode* node : drawOrder_) {
+        applyRuntimeContext(node);
         if (!node->visible() || node->renderLayer() == RenderLayer::Backdrop) {
             continue;
         }
@@ -486,10 +515,19 @@ void UIContext::draw(RenderLayer layer) {
     }
 
     for (UINode* node : drawOrder_) {
-        if (node->visible() && node->renderLayer() == layer) {
-            node->draw();
-            node->clearCacheDirty();
+        applyRuntimeContext(node);
+        if (!node->visible() || node->renderLayer() != layer) {
+            continue;
         }
+        if (node->primitive().blur <= 0.0f && node->usesCachedSurface()) {
+            const RectFrame bounds = node->paintBounds();
+            Renderer::DrawCachedSurface(node->key(), bounds, node->cacheDirty(), [node]() {
+                node->draw();
+            });
+        } else {
+            node->draw();
+        }
+        node->clearCacheDirty();
     }
 }
 
@@ -533,6 +571,7 @@ void UIContext::refreshLayerBounds() {
     }
 
     for (UINode* node : order_) {
+        applyRuntimeContext(node);
         if (!node->visible()) {
             continue;
         }
