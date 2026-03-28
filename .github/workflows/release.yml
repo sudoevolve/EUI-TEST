@@ -36,8 +36,9 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $tag = "${{ github.ref_name }}"
-          $out = "dist/EUI-NEO-$tag-windows-x64.zip"
+          $label = "${{ github.ref_name }}"
+          $label = $label -replace '[^A-Za-z0-9._-]', '-'
+          $out = "dist/EUI-NEO-$label-windows-x64.zip"
           $items = @()
           $items += Get-ChildItem build -Filter *.exe -File
           $items += Get-ChildItem build -Filter *.dll -File
@@ -48,8 +49,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          tag="${GITHUB_REF_NAME}"
-          out="dist/EUI-NEO-${tag}-linux-x64.tar.gz"
+          label="$(echo "${GITHUB_REF_NAME}" | tr -cs 'A-Za-z0-9._-' '-')"
+          out="dist/EUI-NEO-${label}-linux-x64.tar.gz"
           mapfile -t bins < <(find build -maxdepth 1 -type f \( -name 'eui_neo' -o -name 'app_*' \))
           files=("${bins[@]}")
           if [ -d build/font ]; then
