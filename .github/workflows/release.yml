@@ -58,12 +58,27 @@ jobs:
           $label = "${{ github.ref_name }}"
           $label = $label -replace '[^A-Za-z0-9._-]', '-'
           $out = "dist/EUI-NEO-$label-windows-x64.zip"
+          $binDir = "build/Release"
           $items = @()
-          $items += Get-ChildItem build -Recurse -Filter *.exe -File
+          $items += Get-ChildItem $binDir -Filter eui_neo.exe -File -ErrorAction SilentlyContinue
+          $items += Get-ChildItem $binDir -Filter app_*.exe -File -ErrorAction SilentlyContinue
           if ($items.Count -eq 0) { throw "No .exe outputs found in build directory." }
-          $items += Get-ChildItem build -Recurse -Filter glfw*.dll -File
-          if (Test-Path build/Release/font) { $items += Get-Item build/Release/font }
+          $items += Get-ChildItem $binDir -Filter glfw*.dll -File -ErrorAction SilentlyContinue
+          if (Test-Path "$binDir/font") { $items += Get-Item "$binDir/font" }
           Compress-Archive -Path $items.FullName -DestinationPath $out -Force
+      - name: upload windows release asset
+        if: matrix.platform == 'windows' && startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $asset = (Get-ChildItem dist -Filter *.zip -File | Select-Object -First 1).FullName
+          gh release view $tag | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title $tag --notes ""
+          }
+          gh release upload $tag $asset --clobber
       - name: package linux
         if: matrix.platform == 'linux'
         shell: bash
@@ -77,21 +92,13 @@ jobs:
             files+=("build/font")
           fi
           tar -czf "$out" "${files[@]}"
-      - uses: actions/upload-artifact@v5
-        with:
-          name: release-${{ matrix.platform }}
-          path: dist/*
-          if-no-files-found: error
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    steps:
-      - uses: actions/download-artifact@v5
-        with:
-          path: dist
-          merge-multiple: true
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*
+      - name: upload linux release asset
+        if: matrix.platform == 'linux' && startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          asset="$(find dist -maxdepth 1 -type f -name '*.tar.gz' | head -n 1)"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --notes ""
+          gh release upload "$tag" "$asset" --clobber
