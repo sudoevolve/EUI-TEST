@@ -57,17 +57,20 @@ public:
         if (items_.empty()) {
             return false;
         }
-        const int clampedSelected = std::clamp(selectedIndex_, 0, static_cast<int>(items_.size()) - 1);
-        return !indicatorReady_ || std::abs(indicatorAnim_ - static_cast<float>(clampedSelected)) > 0.001f;
+        return !indicatorReady_ || indicatorProgress_ < 1.0f;
     }
 
     void update() override {
-        const int clampedSelected = items_.empty()
+        int clampedSelected = items_.empty()
             ? 0
             : std::clamp(selectedIndex_, 0, static_cast<int>(items_.size()) - 1);
 
         if (!indicatorReady_ || lastItemCount_ != items_.size()) {
             indicatorAnim_ = static_cast<float>(clampedSelected);
+            indicatorStart_ = indicatorAnim_;
+            indicatorTarget_ = indicatorAnim_;
+            indicatorProgress_ = 1.0f;
+            indicatorDuration_ = 0.0f;
             indicatorReady_ = true;
             lastItemCount_ = items_.size();
         }
@@ -82,19 +85,40 @@ public:
             const float segmentWidth = frame.width / static_cast<float>(items_.size());
             const float relativeX = State.mouseX - frame.x;
             selectedIndex_ = std::clamp(static_cast<int>(relativeX / segmentWidth), 0, static_cast<int>(items_.size()) - 1);
+            clampedSelected = selectedIndex_;
             if (onChange_) {
                 onChange_(selectedIndex_);
             }
-            requestRepaint(4.0f);
+            requestRepaint(4.0f, 0.30f);
         }
 
         const float targetAnim = static_cast<float>(clampedSelected);
-        if (std::abs(indicatorAnim_ - targetAnim) > 0.001f) {
-            indicatorAnim_ = Lerp(indicatorAnim_, targetAnim, State.deltaTime * 15.0f);
-            if (std::abs(indicatorAnim_ - targetAnim) < 0.001f) {
-                indicatorAnim_ = targetAnim;
+        if (std::abs(indicatorTarget_ - targetAnim) > 0.001f) {
+            indicatorStart_ = indicatorAnim_;
+            indicatorTarget_ = targetAnim;
+            indicatorProgress_ = 0.0f;
+            const float distance = std::abs(indicatorTarget_ - indicatorStart_);
+            indicatorDuration_ = std::clamp(0.18f + distance * 0.10f, 0.18f, 0.34f);
+        }
+
+        if (indicatorProgress_ < 1.0f) {
+            float deltaSeconds = State.deltaTime;
+            if (deltaSeconds > 1.0f) {
+                deltaSeconds *= 0.001f;
             }
-            requestRepaint(4.0f);
+            if (deltaSeconds <= 0.0f) {
+                deltaSeconds = 1.0f / 120.0f;
+            }
+
+            const float duration = std::max(0.001f, indicatorDuration_);
+            indicatorProgress_ = std::min(1.0f, indicatorProgress_ + deltaSeconds / duration);
+            const float eased = EaseInOutBezier(indicatorProgress_);
+            indicatorAnim_ = Lerp(indicatorStart_, indicatorTarget_, eased);
+            if (indicatorProgress_ >= 1.0f || std::abs(indicatorAnim_ - indicatorTarget_) < 0.001f) {
+                indicatorProgress_ = 1.0f;
+                indicatorAnim_ = indicatorTarget_;
+            }
+            requestRepaint(4.0f, 0.30f);
         }
     }
 
@@ -119,9 +143,10 @@ public:
             const float textWidth = Renderer::MeasureTextWidth(items_[index], textScale);
             const float textX = frame.x + static_cast<float>(index) * segmentWidth + (segmentWidth - textWidth) * 0.5f;
             const float textY = frame.y + frame.height * 0.5f + (fontSize_ / 4.0f);
-            const Color textColor = index == static_cast<std::size_t>(std::round(indicatorAnim_))
-                ? Color(1.0f, 1.0f, 1.0f, 1.0f)
-                : CurrentTheme->text;
+            const float distance = std::abs(indicatorAnim_ - static_cast<float>(index));
+            const float proximity = std::clamp(1.0f - distance, 0.0f, 1.0f);
+            const float blend = proximity * proximity * (3.0f - 2.0f * proximity);
+            const Color textColor = Lerp(CurrentTheme->text, Color(1.0f, 1.0f, 1.0f, 1.0f), blend);
             Renderer::DrawTextStr(items_[index], textX, textY, ApplyOpacity(textColor, primitive_.opacity), textScale);
         }
     }
@@ -138,10 +163,38 @@ protected:
     }
 
 private:
+    static float CubicBezierAt(float t, float p1, float p2) {
+        const float oneMinusT = 1.0f - t;
+        return 3.0f * oneMinusT * oneMinusT * t * p1 +
+               3.0f * oneMinusT * t * t * p2 +
+               t * t * t;
+    }
+
+    static float EaseInOutBezier(float progress) {
+        const float x = std::clamp(progress, 0.0f, 1.0f);
+        constexpr float p1x = 0.30f;
+        constexpr float p1y = 0.00f;
+        constexpr float p2x = 0.15f;
+        constexpr float p2y = 1.00f;
+
+        float lower = 0.0f;
+        float upper = 1.0f;
+        for (int i = 0; i < 12; ++i) {
+            const float mid = (lower + upper) * 0.5f;
+            const float sampleX = CubicBezierAt(mid, p1x, p2x);
+            if (sampleX < x) {
+                lower = mid;
+            } else {
+                upper = mid;
+            }
+        }
+        const float t = (lower + upper) * 0.5f;
+        return CubicBezierAt(t, p1y, p2y);
+    }
+
     void requestRepaint(float expand = 4.0f, float duration = 0.0f) {
         (void)expand;
-        (void)duration;
-        requestVisualRepaint();
+        requestVisualRepaint(duration);
     }
 
     std::vector<std::string> items_;
@@ -149,6 +202,10 @@ private:
     float fontSize_ = 20.0f;
     std::function<void(int)> onChange_;
     float indicatorAnim_ = 0.0f;
+    float indicatorStart_ = 0.0f;
+    float indicatorTarget_ = 0.0f;
+    float indicatorProgress_ = 1.0f;
+    float indicatorDuration_ = 0.22f;
     bool indicatorReady_ = false;
     std::size_t lastItemCount_ = 0;
 };
