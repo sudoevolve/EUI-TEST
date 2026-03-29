@@ -289,7 +289,12 @@ inline int RunDslApp(const DslAppConfig& config, const DslComposeFn& compose) {
         Renderer::RequestRepaint();
     });
 
-    glfwSetCharCallback(window, [](GLFWwindow*, unsigned int codepoint) {
+    glfwSetCharCallback(window, [](GLFWwindow* win, unsigned int codepoint) {
+        const int leftCtrl = glfwGetKey(win, GLFW_KEY_LEFT_CONTROL);
+        const int rightCtrl = glfwGetKey(win, GLFW_KEY_RIGHT_CONTROL);
+        if (leftCtrl == GLFW_PRESS || rightCtrl == GLFW_PRESS) {
+            return;
+        }
         if (codepoint <= 0x7f) {
             State.textInput += static_cast<char>(codepoint);
         } else if (codepoint <= 0x7ff) {

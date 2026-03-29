@@ -123,7 +123,13 @@ public:
         const bool wantsPopupPresentation = isOpen_ || openAnim_ > 0.001f;
         if (popupPresentation_ != wantsPopupPresentation) {
             popupPresentation_ = wantsPopupPresentation;
-            requestComposeRebuild();
+            if (popupPresentation_) {
+                applyPopupPresentationDefaults(180);
+            } else {
+                primitive_.renderLayer = RenderLayer::Content;
+                primitive_.clipToParent = true;
+            }
+            requestRepaint(openAnim_, openAnim_);
         }
 
         if (isOpen_ || openAnim_ > 0.0f) {
@@ -143,8 +149,12 @@ public:
 
         if (State.mouseClicked && primitive_.enabled) {
             if (isOpen_) {
-                const float listY = frame.y + frame.height;
-                const float listHeight = static_cast<float>(items_.size()) * frame.height;
+                const float visibleOpen = std::clamp(openAnim_, 0.0f, 1.0f);
+                const float visibleListHeight = listVisibleHeight(frame.height, items_.size(), visibleOpen);
+                const float overlap = listOverlap(visibleListHeight);
+                const RectFrame popupFrame = PopupListFrame(frame, visibleListHeight, overlap);
+                const float listY = popupFrame.y;
+                const float listHeight = popupFrame.height;
                 const bool hoveredList =
                     State.mouseX >= frame.x && State.mouseX <= frame.x + frame.width &&
                     State.mouseY >= listY && State.mouseY <= listY + listHeight;
@@ -265,10 +275,9 @@ private:
     }
 
     void requestRepaint(float fromOpenFactor, float toOpenFactor, float duration = 0.0f) {
-        (void)fromOpenFactor;
-        (void)toOpenFactor;
-        (void)duration;
-        requestVisualRepaint();
+        const float delta = std::abs(toOpenFactor - fromOpenFactor);
+        const float autoDuration = std::max(0.10f, delta * 0.20f);
+        requestVisualRepaint(duration > 0.0f ? duration : autoDuration);
     }
 
     std::vector<std::string> items_;

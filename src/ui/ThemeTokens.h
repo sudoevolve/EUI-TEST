@@ -161,25 +161,28 @@ inline void DrawFieldChrome(const UIPrimitive& primitive, float hoverAmount, flo
     style.rounding = cornerRadius;
     Renderer::DrawRect(frame.x, frame.y, frame.width, frame.height, style);
 
+    const float lineTopY = frame.y - 0.5f;
+    const float borderLineHeight = std::max(tokens.borderLineHeight, cornerRadius > 2.0f ? 1.5f : 1.0f) + 0.5f;
     Renderer::DrawRect(
         frame.x,
-        frame.y,
+        lineTopY,
         frame.width,
-        tokens.borderLineHeight,
+        borderLineHeight,
         ApplyOpacity(palette.border, primitive.opacity),
-        0.0f
+        cornerRadius
     );
 
     if (active > 0.01f) {
         Color accent = palette.primary;
         accent.a = active;
+        const float focusLineHeight = std::max(tokens.focusLineHeight, borderLineHeight);
         Renderer::DrawRect(
             frame.x,
-            frame.y,
+            lineTopY,
             frame.width,
-            tokens.focusLineHeight,
+            focusLineHeight,
             ApplyOpacity(accent, primitive.opacity),
-            0.0f
+            cornerRadius
         );
     }
 }
