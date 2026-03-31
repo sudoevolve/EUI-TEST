@@ -88,3 +88,36 @@ ui.panel("card.b")
 ```
 
 上面例子中 `card.b` 会压在 `card.a` 上面，因为它们在同一层且 `zIndex` 更大。
+
+## 交互冲突怎么处理（推荐）
+
+如果遇到 hover/click 冲突，建议按这个顺序做：
+
+- 先用 `layer` 分层，再在同层用 `zIndex`
+- 弹层打开时，禁用底层交互控件（`.enabled(false)`）
+- 不要让两个可交互节点长期重叠在同一区域
+- 透明点击层要单独管理显示与启用状态
+
+### 常用写法：弹层打开时禁用底层点击
+
+```cpp
+bool popupOpen = true;
+
+ui.button("page.action")
+    .position(120.0f, 120.0f)
+    .size(140.0f, 40.0f)
+    .enabled(!popupOpen)
+    .text("Action")
+    .build();
+
+if (popupOpen) {
+    ui.panel("page.popup")
+        .position(100.0f, 90.0f)
+        .size(320.0f, 220.0f)
+        .popupLayer()
+        .zIndex(300)
+        .build();
+}
+```
+
+这样做可以避免“上层弹窗显示了，但下层按钮还在响应点击”的问题。
