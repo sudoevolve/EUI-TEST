@@ -24,7 +24,7 @@ int main() {
             .build();
 
         ui.label("demo.header.title")
-            .position(20.0f, 18.0f)
+            .position(20.0f, 48.0f)
             .text("1,000,000 Items Virtual List View Demo")
             .fontSize(24.0f)
             .color(EUINEO::Color(1.0f, 1.0f, 1.0f, 1.0f))

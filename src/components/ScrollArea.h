@@ -82,13 +82,22 @@ public:
             State.mouseY >= frame.y && State.mouseY <= frame.y + frame.height;
 
         if (State.mouseClicked && primitive_.enabled && hovered_ && maxScroll > 0.0f) {
-            if (hoveredThumb || hoveredTrack) {
-                isDragging_ = true;
-                isContentDragging_ = false;
-                dragGrabOffsetY_ = hoveredThumb ? (State.mouseY - thumb.y) : (thumb.height * 0.5f);
+            isDragging_ = false;
+            isContentDragging_ = true;
+            if (hoveredThumb) {
+                contentDragStartMouseY_ = State.mouseY;
+                contentDragStartOffsetY_ = scrollOffsetY_;
+            } else if (hoveredTrack) {
+                const float travel = std::max(0.0f, frame.height - thumb.height);
+                float nextOffset = 0.0f;
+                if (travel > 0.0f) {
+                    const float localThumbY = std::clamp(State.mouseY - thumb.height * 0.5f - frame.y, 0.0f, travel);
+                    nextOffset = (localThumbY / travel) * maxScroll;
+                }
+                scrollOffsetY_ = std::clamp(nextOffset, 0.0f, maxScroll);
+                contentDragStartMouseY_ = State.mouseY;
+                contentDragStartOffsetY_ = scrollOffsetY_;
             } else {
-                isContentDragging_ = true;
-                isDragging_ = false;
                 contentDragStartMouseY_ = State.mouseY;
                 contentDragStartOffsetY_ = scrollOffsetY_;
             }
@@ -102,20 +111,6 @@ public:
         }
 
         bool scrollChanged = false;
-        if (isDragging_ && maxScroll > 0.0f) {
-            State.scrollConsumed = true;
-            const float travel = std::max(0.0f, frame.height - thumb.height);
-            float nextOffset = 0.0f;
-            if (travel > 0.0f) {
-                const float localThumbY = std::clamp(State.mouseY - dragGrabOffsetY_ - frame.y, 0.0f, travel);
-                nextOffset = (localThumbY / travel) * maxScroll;
-            }
-            if (std::abs(nextOffset - scrollOffsetY_) > 0.01f) {
-                scrollOffsetY_ = nextOffset;
-                scrollChanged = true;
-                requestVisualRepaint();
-            }
-        }
 
         if (isContentDragging_ && maxScroll > 0.0f) {
             State.scrollConsumed = true;

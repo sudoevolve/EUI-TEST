@@ -20,7 +20,14 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4005)
+#endif
 #include <Windows.h>
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 #include <urlmon.h>
 #endif
 

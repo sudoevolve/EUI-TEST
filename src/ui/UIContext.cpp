@@ -432,8 +432,22 @@ void UIContext::resolveLayout(LayoutState& layout, const RectFrame& frame) {
 }
 
 void UIContext::update() {
+    if (drawOrderStamp_ != composeStamp_) {
+        drawOrder_ = order_;
+        std::stable_sort(drawOrder_.begin(), drawOrder_.end(), [](const UINode* lhs, const UINode* rhs) {
+            const int lhsLayer = LayerDrawPriority(lhs->renderLayer());
+            const int rhsLayer = LayerDrawPriority(rhs->renderLayer());
+            if (lhsLayer != rhsLayer) {
+                return lhsLayer < rhsLayer;
+            }
+            return lhs->zIndex() < rhs->zIndex();
+        });
+        drawOrderStamp_ = composeStamp_;
+    }
+
     bool dirtyLayers[static_cast<std::size_t>(RenderLayer::Count)] = {};
-    for (UINode* node : order_) {
+    for (auto it = drawOrder_.rbegin(); it != drawOrder_.rend(); ++it) {
+        UINode* node = *it;
         applyRuntimeContext(node);
         const bool isVisible = node->visible();
         if (isVisible) {
