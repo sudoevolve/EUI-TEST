@@ -13,9 +13,46 @@ int main() {
 
     return EUINEO::RunDslApp(config, [](EUINEO::UIContext& ui, const EUINEO::RectFrame& screen) {
         EUINEO::UseDslDarkTheme(EUINEO::Color(0.0f, 0.0f, 0.0f, 1.0f));
-
-        // Header
         const float headerHeight = 60.0f;
+        const float pagePadding = 20.0f;
+        const int itemCount = 1000000;
+        const float itemHeight = 48.0f;
+        const float rowHeight = itemHeight - 4.0f;
+        const float listX = pagePadding;
+        const float listY = headerHeight + pagePadding;
+        const float listWidth = std::max(0.0f, screen.width - pagePadding * 2.0f);
+        const float listHeight = std::max(0.0f, screen.height - listY - pagePadding);
+        const auto composeItem = [&](int index, float itemY) {
+            const std::string itemKey = "demo.list.item." + std::to_string(index);
+            ui.panel(itemKey + ".bg")
+                .position(listX, itemY)
+                .size(listWidth, rowHeight)
+                .background(EUINEO::Color(0.15f, 0.15f, 0.18f, 1.0f))
+                .rounding(8.0f)
+                .build();
+
+            ui.row()
+                .position(listX, itemY)
+                .size(listWidth, rowHeight)
+                .padding(16.0f, 0.0f)
+                .gap(12.0f)
+                .alignItems(EUINEO::CrossAxisAlignment::Center)
+                .content([&] {
+                    ui.label(itemKey + ".text")
+                        .flex(1.0f)
+                        .text("List Item #" + std::to_string(index + 1) + " - Fast Virtual Rendering")
+                        .fontSize(16.0f)
+                        .color(EUINEO::Color(0.8f, 0.8f, 0.8f, 1.0f))
+                        .build();
+
+                    ui.button(itemKey + ".action")
+                        .size(80.0f, 32.0f)
+                        .text("Action")
+                        .style(EUINEO::ButtonStyle::Primary)
+                        .build();
+                });
+        };
+
         ui.panel("demo.header")
             .position(0.0f, 0.0f)
             .size(screen.width, headerHeight)
@@ -23,59 +60,27 @@ int main() {
             .border(1.0f, EUINEO::Color(0.2f, 0.2f, 0.25f, 1.0f))
             .build();
 
-        ui.label("demo.header.title")
-            .position(20.0f, 48.0f)
-            .text("1,000,000 Items Virtual List View Demo")
-            .fontSize(24.0f)
-            .color(EUINEO::Color(1.0f, 1.0f, 1.0f, 1.0f))
-            .build();
-
-        // ListView configuration
-        const int itemCount = 1000000;
-        const float itemHeight = 48.0f;
-        const float listX = 20.0f;
-        const float listY = headerHeight + 20.0f;
-        const float listWidth = std::max(0.0f, screen.width - 40.0f);
-        const float listHeight = std::max(0.0f, screen.height - listY - 20.0f);
+        ui.row()
+            .position(0.0f, 0.0f)
+            .size(screen.width, headerHeight)
+            .padding(pagePadding, 0.0f)
+            .alignItems(EUINEO::CrossAxisAlignment::Center)
+            .content([&] {
+                ui.label("demo.header.title")
+                    .text("1,000,000 Items Virtual List View Demo")
+                    .fontSize(24.0f)
+                    .color(EUINEO::Color(1.0f, 1.0f, 1.0f, 1.0f))
+                    .build();
+            });
 
         if (listWidth > 0.0f && listHeight > 0.0f) {
             EUINEO::ListView::Compose(
-                ui, 
-                "demo.list", 
-                listX, listY, listWidth, listHeight, 
-                itemCount, 
-                itemHeight, 
-                [&](int index, float itemY) {
-                    // Draw item background
-                    ui.panel("demo.list.itemBg." + std::to_string(index))
-                        .position(listX, itemY)
-                        .size(listWidth, itemHeight - 4.0f)
-                        .background(EUINEO::Color(0.15f, 0.15f, 0.18f, 1.0f))
-                        .rounding(8.0f)
-                        .build();
-
-                    const float fontSize = 16.0f;
-                    const float itemCenterY = itemY + (itemHeight - 4.0f) * 0.5f;
-                    const float textY = itemCenterY + (fontSize * 0.25f); 
-                    
-                    ui.label("demo.list.itemText." + std::to_string(index))
-                        .position(listX + 16.0f, textY)
-                        .text("List Item #" + std::to_string(index + 1) + " - Fast Virtual Rendering")
-                        .fontSize(fontSize)
-                        .color(EUINEO::Color(0.8f, 0.8f, 0.8f, 1.0f))
-                        .build();
-                        
-                    // Draw a button for interaction - also vertically centered
-                    const float btnHeight = 32.0f;
-                    const float btnY = itemY + (itemHeight - 4.0f - btnHeight) * 0.5f;
-                    
-                    ui.button("demo.list.itemBtn." + std::to_string(index))
-                        .position(listX + listWidth - 100.0f, btnY)
-                        .size(80.0f, btnHeight)
-                        .text("Action")
-                        .style(EUINEO::ButtonStyle::Primary)
-                        .build();
-                }
+                ui,
+                "demo.list",
+                listX, listY, listWidth, listHeight,
+                itemCount,
+                itemHeight,
+                composeItem
             );
         }
     });

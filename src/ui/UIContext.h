@@ -28,6 +28,19 @@ enum class FlexDirection {
     Column
 };
 
+enum class MainAxisAlignment {
+    Start,
+    Center,
+    End
+};
+
+enum class CrossAxisAlignment {
+    Auto,
+    Start,
+    Center,
+    End
+};
+
 class UIContext {
 private:
     struct LayoutState;
@@ -53,6 +66,8 @@ public:
         LayoutBuilder& padding(float value);
         LayoutBuilder& padding(float horizontal, float vertical);
         LayoutBuilder& padding(float left, float top, float right, float bottom);
+        LayoutBuilder& justifyContent(MainAxisAlignment value);
+        LayoutBuilder& alignItems(CrossAxisAlignment value);
 
         template <typename Fn>
         void content(Fn&& compose) {
@@ -162,6 +177,8 @@ private:
         float paddingTop = 0.0f;
         float paddingRight = 0.0f;
         float paddingBottom = 0.0f;
+        MainAxisAlignment justifyContent = MainAxisAlignment::Start;
+        CrossAxisAlignment alignItems = CrossAxisAlignment::Auto;
         std::vector<LayoutItem> children;
     };
 
@@ -363,6 +380,16 @@ inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::padding(float left, f
     layout_->paddingTop = std::max(0.0f, top);
     layout_->paddingRight = std::max(0.0f, right);
     layout_->paddingBottom = std::max(0.0f, bottom);
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::justifyContent(MainAxisAlignment value) {
+    layout_->justifyContent = value;
+    return *this;
+}
+
+inline UIContext::LayoutBuilder& UIContext::LayoutBuilder::alignItems(CrossAxisAlignment value) {
+    layout_->alignItems = value;
     return *this;
 }
 

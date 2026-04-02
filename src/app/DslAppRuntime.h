@@ -122,23 +122,47 @@ inline void SetDslBackground(const Color& color) {
     if (CurrentTheme == nullptr) {
         CurrentTheme = &DarkTheme;
     }
-    CurrentTheme->background = color;
+    const auto nearlyEqual = [](float lhs, float rhs) {
+        return std::fabs(lhs - rhs) <= 0.0001f;
+    };
+    const auto sameColor = [&](const Color& lhs, const Color& rhs) {
+        return nearlyEqual(lhs.r, rhs.r) &&
+               nearlyEqual(lhs.g, rhs.g) &&
+               nearlyEqual(lhs.b, rhs.b) &&
+               nearlyEqual(lhs.a, rhs.a);
+    };
+    const bool backgroundChanged = !sameColor(CurrentTheme->background, color);
+    if (backgroundChanged) {
+        CurrentTheme->background = color;
+    }
     if (GLFWwindow* window = ActiveDslWindowState().window) {
         if (color.a >= 0.999f) {
             glfwSetWindowOpacity(window, 1.0f);
         }
     }
-    Renderer::InvalidateAll();
-    Renderer::RequestRepaint(0.08f);
+    if (backgroundChanged) {
+        Renderer::InvalidateAll();
+        Renderer::RequestRepaint(0.08f);
+    }
 }
 
 inline void UseDslLightTheme(const Color& background = Color(1.0f, 1.0f, 1.0f, 1.0f)) {
+    const bool themeChanged = CurrentTheme != &LightTheme;
     CurrentTheme = &LightTheme;
+    if (themeChanged) {
+        Renderer::InvalidateAll();
+        Renderer::RequestRepaint(0.08f);
+    }
     SetDslBackground(background);
 }
 
 inline void UseDslDarkTheme(const Color& background = Color(0.0f, 0.0f, 0.0f, 1.0f)) {
+    const bool themeChanged = CurrentTheme != &DarkTheme;
     CurrentTheme = &DarkTheme;
+    if (themeChanged) {
+        Renderer::InvalidateAll();
+        Renderer::RequestRepaint(0.08f);
+    }
     SetDslBackground(background);
 }
 

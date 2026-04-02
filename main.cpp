@@ -14,7 +14,14 @@
 #endif
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4005)
+#endif
 #include <windows.h>
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 #include <imm.h>
 #pragma comment(lib, "imm32.lib")
 #endif

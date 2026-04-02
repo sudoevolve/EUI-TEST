@@ -70,11 +70,30 @@ float CrossMarginAfter(const LayoutBuildInfo& build, FlexDirection direction) {
     return direction == FlexDirection::Row ? build.marginBottom : build.marginRight;
 }
 
-float ResolveCrossOffset(FlexDirection direction, float availableCross, float crossSize) {
-    if (direction != FlexDirection::Row) {
-        return 0.0f;
+float ResolveMainOffset(MainAxisAlignment alignment, float availableMain, float occupiedMain) {
+    const float freeSpace = std::max(0.0f, availableMain - occupiedMain);
+    if (alignment == MainAxisAlignment::Center) {
+        return freeSpace * 0.5f;
     }
-    return std::max(0.0f, (availableCross - crossSize) * 0.5f);
+    if (alignment == MainAxisAlignment::End) {
+        return freeSpace;
+    }
+    return 0.0f;
+}
+
+float ResolveCrossOffset(FlexDirection direction, CrossAxisAlignment alignment, float availableCross, float crossSize) {
+    CrossAxisAlignment effective = alignment;
+    if (effective == CrossAxisAlignment::Auto) {
+        effective = direction == FlexDirection::Row ? CrossAxisAlignment::Center : CrossAxisAlignment::Start;
+    }
+    const float freeSpace = std::max(0.0f, availableCross - crossSize);
+    if (effective == CrossAxisAlignment::Center) {
+        return freeSpace * 0.5f;
+    }
+    if (effective == CrossAxisAlignment::End) {
+        return freeSpace;
+    }
+    return 0.0f;
 }
 
 } // namespace
@@ -413,7 +432,12 @@ void UIContext::resolveLayout(LayoutState& layout, const RectFrame& frame) {
     }
 
     const float flexSpace = std::max(0.0f, availableMain - fixedMain - totalMargins - gapTotal);
-    float cursor = layout.direction == FlexDirection::Row ? innerX : innerY;
+    float occupiedMain = totalMargins + gapTotal;
+    for (const LayoutItem& item : layout.children) {
+        occupiedMain += resolveMainSize(item, layout.direction, flexSpace, totalFlex);
+    }
+    float cursor = (layout.direction == FlexDirection::Row ? innerX : innerY)
+        + ResolveMainOffset(layout.justifyContent, availableMain, occupiedMain);
     const float crossStart = layout.direction == FlexDirection::Row ? innerY : innerX;
 
     for (LayoutItem& item : layout.children) {
@@ -428,7 +452,7 @@ void UIContext::resolveLayout(LayoutState& layout, const RectFrame& frame) {
             layout.direction,
             crossAvailable
         );
-        const float crossOffset = ResolveCrossOffset(layout.direction, crossAvailable, crossSize);
+        const float crossOffset = ResolveCrossOffset(layout.direction, layout.alignItems, crossAvailable, crossSize);
         const RectFrame childFrame = resolveItemFrame(
             item,
             layout.direction,
