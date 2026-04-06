@@ -31,21 +31,13 @@ public:
         );
 
         const float split = std::clamp(splitRatio, 0.28f, 0.72f);
-        const float sliderValue = (split - 0.28f) / 0.44f;
-        const float gap = visuals.sectionGap;
-        const RectFrame controlFrame{bounds.x, header.contentY, bounds.width, 78.0f};
-        const float demoY = controlFrame.y + controlFrame.height + gap;
-        const RectFrame demoFrame{
-            bounds.x,
-            demoY,
-            bounds.width,
-            std::max(0.0f, bounds.y + bounds.height - demoY)
-        };
+        const float demoY = header.contentY + 78.0f + visuals.sectionGap;
+        const RectFrame demoFrame{bounds.x, demoY, bounds.width, std::max(0.0f, bounds.y + bounds.height - demoY)};
 
-        ComposePageSection(ui, idPrefix + ".control", controlFrame);
+        ComposePageSection(ui, idPrefix + ".control", RectFrame{bounds.x, header.contentY, bounds.width, 78.0f});
         ui.row()
-            .position(controlFrame.x, controlFrame.y)
-            .size(controlFrame.width, controlFrame.height)
+            .position(bounds.x, header.contentY)
+            .size(bounds.width, 78.0f)
             .padding(20.0f, 18.0f)
             .gap(12.0f)
             .content([&] {
@@ -57,7 +49,7 @@ public:
                 ui.slider(idPrefix + ".control.slider")
                     .flex(1.0f)
                     .height(18.0f)
-                    .value(sliderValue)
+                    .value((split - 0.28f) / 0.44f)
                     .onChange([action = actions.onSplitChange](float value) {
                         if (action) {
                             action(0.28f + std::clamp(value, 0.0f, 1.0f) * 0.44f);
@@ -83,12 +75,12 @@ public:
             .position(demoFrame.x, demoFrame.y)
             .size(demoFrame.width, demoFrame.height)
             .padding(20.0f)
-            .gap(gap)
+            .gap(visuals.sectionGap)
             .content([&] {
                 ComposeLeftColumn(ui, idPrefix + ".left", split);
 
                 ui.panel(idPrefix + ".divider")
-                    .width(gap)
+                    .width(visuals.sectionGap)
                     .background(visuals.softAccentColor)
                     .rounding(8.0f)
                     .build();

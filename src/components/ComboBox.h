@@ -42,6 +42,12 @@ public:
             return *this;
         }
 
+        Builder& maxVisibleItems(int value) {
+            this->node_.trackComposeValue("maxVisibleItems", value);
+            this->node_.maxVisibleItems_ = std::max(1, value);
+            return *this;
+        }
+
         Builder& startOpen(bool value) {
             this->node_.trackComposeValue("startOpen", value);
             if (!this->node_.openStateInitialized_) {
@@ -78,6 +84,9 @@ public:
         if (openAnim_ > 0.001f && openAnim_ < 0.999f) {
             return true;
         }
+        if (isScrollDragging_) {
+            return true;
+        }
         for (float hover : itemHoverAnims_) {
             if (hover > 0.001f && hover < 0.999f) {
                 return true;
@@ -90,7 +99,7 @@ public:
         const RectFrame frame = PrimitiveFrame(primitive_);
         RectFrame bounds = popupPresentation_ ? frame : clipPaintBounds(frame);
         const float visibleOpen = std::clamp(openAnim_, 0.0f, 1.0f);
-        const float visibleListHeight = listVisibleHeight(frame.height, items_.size(), visibleOpen);
+        const float visibleListHeight = listVisibleHeight(frame.height, items_.size(), maxVisibleItems_, visibleOpen);
         if (visibleListHeight <= 0.0f) {
             return bounds;
         }
@@ -109,6 +118,10 @@ public:
         ensureRuntimeState();
         const RectFrame frame = PrimitiveFrame(primitive_);
         const bool hoveredMain = hovered();
+        const float listHeightMax = maxListHeight(frame.height, items_.size(), maxVisibleItems_);
+        const float contentHeight = totalListHeight(frame.height, items_.size());
+        const float maxScroll = maxScrollOffset(frame.height, items_.size(), maxVisibleItems_);
+        scrollOffsetY_ = std::clamp(scrollOffsetY_, 0.0f, maxScroll);
 
         if (animateTowards(hoverAnim_, hoveredMain ? 1.0f : 0.0f, State.deltaTime * 15.0f)) {
             requestRepaint(openAnim_, openAnim_);
@@ -132,13 +145,62 @@ public:
             requestRepaint(openAnim_, openAnim_);
         }
 
+        if (!State.mouseDown && isScrollDragging_) {
+            isScrollDragging_ = false;
+            requestRepaint(openAnim_, openAnim_);
+        }
+
         if (isOpen_ || openAnim_ > 0.0f) {
-            const float listY = frame.y + frame.height;
+            const float visibleOpen = std::clamp(openAnim_, 0.0f, 1.0f);
+            const float visibleListHeight = listHeightMax * visibleOpen;
+            const float overlap = listOverlap(visibleListHeight);
+            const RectFrame popupFrame = PopupListFrame(frame, visibleListHeight, overlap);
+            const bool hoveredList =
+                State.mouseX >= popupFrame.x && State.mouseX <= popupFrame.x + popupFrame.width &&
+                State.mouseY >= popupFrame.y && State.mouseY <= popupFrame.y + popupFrame.height;
+            constexpr float kScrollTrackHitWidth = 14.0f;
+            const bool hasScrollableList = maxScroll > 0.0f && popupFrame.height > 0.0f;
+            const bool hoveredTrack = hasScrollableList && hoveredList &&
+                State.mouseX >= popupFrame.x + popupFrame.width - kScrollTrackHitWidth;
+            RectFrame thumb{};
+            bool hoveredThumb = false;
+            if (hasScrollableList) {
+                thumb = popupThumbFrame(popupFrame, contentHeight, maxScroll, scrollOffsetY_);
+                hoveredThumb =
+                    State.mouseX >= thumb.x && State.mouseX <= thumb.x + thumb.width &&
+                    State.mouseY >= thumb.y && State.mouseY <= thumb.y + thumb.height;
+            }
+
+            if (isScrollDragging_ && hasScrollableList) {
+                State.scrollConsumed = true;
+                const float travel = std::max(0.0f, popupFrame.height - thumb.height);
+                float nextOffset = 0.0f;
+                if (travel > 0.0f) {
+                    const float localThumbY = std::clamp(State.mouseY - scrollDragGrabOffsetY_ - popupFrame.y, 0.0f, travel);
+                    nextOffset = (localThumbY / travel) * maxScroll;
+                }
+                if (std::abs(nextOffset - scrollOffsetY_) > 0.01f) {
+                    scrollOffsetY_ = nextOffset;
+                    requestRepaint(openAnim_, openAnim_);
+                }
+            }
+
+            if (hoveredList && !State.scrollConsumed && std::abs(State.scrollDeltaY) > 0.001f && maxScroll > 0.0f) {
+                const float nextOffset = std::clamp(scrollOffsetY_ - State.scrollDeltaY * scrollStep_, 0.0f, maxScroll);
+                State.scrollConsumed = true;
+                if (std::abs(nextOffset - scrollOffsetY_) > 0.01f) {
+                    scrollOffsetY_ = nextOffset;
+                    requestRepaint(openAnim_, openAnim_);
+                }
+            }
+
             for (std::size_t index = 0; index < items_.size(); ++index) {
-                const float itemY = listY + static_cast<float>(index) * frame.height;
+                const float itemY = popupFrame.y + static_cast<float>(index) * frame.height - scrollOffsetY_;
                 const bool itemHovered = primitive_.enabled &&
-                    State.mouseX >= frame.x && State.mouseX <= frame.x + frame.width &&
-                    State.mouseY >= itemY && State.mouseY <= itemY + frame.height;
+                    State.mouseX >= popupFrame.x && State.mouseX <= popupFrame.x + popupFrame.width &&
+                    State.mouseY >= itemY && State.mouseY <= itemY + frame.height &&
+                    (!hasScrollableList || State.mouseX < popupFrame.x + popupFrame.width - kScrollTrackHitWidth) &&
+                    itemY + frame.height > popupFrame.y && itemY < popupFrame.y + popupFrame.height;
 
                 const float targetItemHover = (itemHovered && isOpen_) ? 1.0f : 0.0f;
                 if (animateTowards(itemHoverAnims_[index], targetItemHover, State.deltaTime * 15.0f)) {
@@ -150,32 +212,81 @@ public:
         if (State.mouseClicked && primitive_.enabled) {
             if (isOpen_) {
                 const float visibleOpen = std::clamp(openAnim_, 0.0f, 1.0f);
-                const float visibleListHeight = listVisibleHeight(frame.height, items_.size(), visibleOpen);
+                const float visibleListHeight = listHeightMax * visibleOpen;
                 const float overlap = listOverlap(visibleListHeight);
                 const RectFrame popupFrame = PopupListFrame(frame, visibleListHeight, overlap);
                 const float listY = popupFrame.y;
                 const float listHeight = popupFrame.height;
+                constexpr float kScrollTrackHitWidth = 14.0f;
                 const bool hoveredList =
-                    State.mouseX >= frame.x && State.mouseX <= frame.x + frame.width &&
+                    State.mouseX >= popupFrame.x && State.mouseX <= popupFrame.x + popupFrame.width &&
                     State.mouseY >= listY && State.mouseY <= listY + listHeight;
-
-                if (hoveredList && frame.height > 0.0f) {
-                    const int index = static_cast<int>((State.mouseY - listY) / frame.height);
-                    if (index >= 0 && index < static_cast<int>(items_.size())) {
-                        selectedIndex_ = index;
-                        if (onChange_) {
-                            onChange_(selectedIndex_);
-                        }
-                    }
+                const bool hoveredMainFrame =
+                    State.mouseX >= frame.x && State.mouseX <= frame.x + frame.width &&
+                    State.mouseY >= frame.y && State.mouseY <= frame.y + frame.height;
+                const bool hasScrollableList = maxScroll > 0.0f && popupFrame.height > 0.0f;
+                const bool hoveredTrack = hasScrollableList && hoveredList &&
+                    State.mouseX >= popupFrame.x + popupFrame.width - kScrollTrackHitWidth;
+                RectFrame thumb{};
+                bool hoveredThumb = false;
+                if (hasScrollableList) {
+                    thumb = popupThumbFrame(popupFrame, contentHeight, maxScroll, scrollOffsetY_);
+                    hoveredThumb =
+                        State.mouseX >= thumb.x && State.mouseX <= thumb.x + thumb.width &&
+                        State.mouseY >= thumb.y && State.mouseY <= thumb.y + thumb.height;
                 }
 
-                const float fromOpen = openAnim_;
-                isOpen_ = false;
-                requestRepaint(fromOpen, 0.0f);
+                if (hoveredThumb || hoveredTrack) {
+                    if (hasScrollableList && hoveredTrack && !hoveredThumb) {
+                        const float travel = std::max(0.0f, popupFrame.height - thumb.height);
+                        float nextOffset = 0.0f;
+                        if (travel > 0.0f) {
+                            const float localThumbY = std::clamp(State.mouseY - thumb.height * 0.5f - popupFrame.y, 0.0f, travel);
+                            nextOffset = (localThumbY / travel) * maxScroll;
+                        }
+                        scrollOffsetY_ = std::clamp(nextOffset, 0.0f, maxScroll);
+                    }
+                    isScrollDragging_ = hasScrollableList;
+                    scrollDragGrabOffsetY_ = hasScrollableList
+                        ? std::clamp(State.mouseY - thumb.y, 0.0f, thumb.height)
+                        : 0.0f;
+                    requestRepaint(openAnim_, openAnim_);
+                    State.mouseClicked = false;
+                } else if (hoveredList && frame.height > 0.0f) {
+                    const bool inItemRegion = !hasScrollableList || State.mouseX < popupFrame.x + popupFrame.width - kScrollTrackHitWidth;
+                    if (inItemRegion) {
+                        const int index = static_cast<int>((State.mouseY - listY + scrollOffsetY_) / frame.height);
+                        if (index >= 0 && index < static_cast<int>(items_.size())) {
+                            selectedIndex_ = index;
+                            if (onChange_) {
+                                onChange_(selectedIndex_);
+                            }
+                        }
+                        const float fromOpen = openAnim_;
+                        isOpen_ = false;
+                        isScrollDragging_ = false;
+                        requestRepaint(fromOpen, 0.0f);
+                    }
+                    State.mouseClicked = false;
+                } else if (hoveredMainFrame) {
+                    const float fromOpen = openAnim_;
+                    isOpen_ = false;
+                    isScrollDragging_ = false;
+                    requestRepaint(fromOpen, 0.0f);
+                    State.mouseClicked = false;
+                } else {
+                    const float fromOpen = openAnim_;
+                    isOpen_ = false;
+                    isScrollDragging_ = false;
+                    requestRepaint(fromOpen, 0.0f);
+                    State.mouseClicked = false;
+                }
             } else if (hoveredMain) {
                 const float fromOpen = openAnim_;
                 isOpen_ = true;
+                isScrollDragging_ = false;
                 requestRepaint(fromOpen, 1.0f);
+                State.mouseClicked = false;
             }
         }
     }
@@ -187,7 +298,8 @@ public:
         const float textX = frame.x + visuals.horizontalInset;
         const float textY = frame.y + frame.height * 0.5f + (fontSize_ / 4.0f);
         const float visibleOpen = std::clamp(openAnim_, 0.0f, 1.0f);
-        const float visibleListHeight = listVisibleHeight(frame.height, items_.size(), visibleOpen);
+        const float listHeightMax = maxListHeight(frame.height, items_.size(), maxVisibleItems_);
+        const float visibleListHeight = listHeightMax * visibleOpen;
 
         if (visibleListHeight > 1.0f) {
             const float overlap = listOverlap(visibleListHeight);
@@ -197,12 +309,12 @@ public:
             DrawPopupChrome(primitive_, popupFrame, visuals.popupRounding);
 
             for (std::size_t index = 0; index < items_.size(); ++index) {
-                const float itemY = frame.y + frame.height + static_cast<float>(index) * frame.height;
+                const float itemY = listY + static_cast<float>(index) * frame.height - scrollOffsetY_;
                 const float currentListBottom = listY + listHeight;
                 const float visibleHeight = std::clamp(currentListBottom - itemY, 0.0f, frame.height);
 
-                if (itemY > currentListBottom || visibleHeight <= 0.0f) {
-                    break;
+                if (visibleHeight <= 0.0f || itemY + frame.height < listY) {
+                    continue;
                 }
 
                 const float itemAlpha = visibleHeight / frame.height;
@@ -225,6 +337,25 @@ public:
                     Renderer::DrawTextStr(items_[index], textX, itemY + frame.height * 0.5f + (fontSize_ / 4.0f),
                                           ApplyOpacity(itemColor, primitive_.opacity), textScale);
                 }
+            }
+
+            const float maxScroll = maxScrollOffset(frame.height, items_.size(), maxVisibleItems_);
+            if (maxScroll > 0.0f && popupFrame.height > 0.0f) {
+                const RectFrame thumb = popupThumbFrame(
+                    popupFrame,
+                    totalListHeight(frame.height, items_.size()),
+                    maxScroll,
+                    scrollOffsetY_
+                );
+                const Color thumbColor = Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.32f);
+                Renderer::DrawRect(
+                    thumb.x,
+                    thumb.y,
+                    thumb.width,
+                    thumb.height,
+                    ApplyOpacity(thumbColor, primitive_.opacity),
+                    thumb.width * 0.5f
+                );
             }
         }
 
@@ -256,12 +387,38 @@ protected:
         items_.clear();
         selectedIndex_ = -1;
         fontSize_ = 20.0f;
+        maxVisibleItems_ = 6;
+        scrollStep_ = 48.0f;
         onChange_ = {};
     }
 
 private:
-    static float listVisibleHeight(float itemHeight, std::size_t itemCount, float openFactor) {
-        return static_cast<float>(itemCount) * itemHeight * std::clamp(openFactor, 0.0f, 1.0f);
+    static float totalListHeight(float itemHeight, std::size_t itemCount) {
+        return static_cast<float>(itemCount) * itemHeight;
+    }
+
+    static float maxListHeight(float itemHeight, std::size_t itemCount, int maxVisibleItems) {
+        const int visibleCount = std::max(1, std::min(static_cast<int>(itemCount), maxVisibleItems));
+        return static_cast<float>(visibleCount) * itemHeight;
+    }
+
+    static float listVisibleHeight(float itemHeight, std::size_t itemCount, int maxVisibleItems, float openFactor) {
+        return maxListHeight(itemHeight, itemCount, maxVisibleItems) * std::clamp(openFactor, 0.0f, 1.0f);
+    }
+
+    static float maxScrollOffset(float itemHeight, std::size_t itemCount, int maxVisibleItems) {
+        return std::max(0.0f, totalListHeight(itemHeight, itemCount) - maxListHeight(itemHeight, itemCount, maxVisibleItems));
+    }
+
+    static RectFrame popupThumbFrame(const RectFrame& popupFrame, float contentHeight, float maxScroll, float scrollOffsetY) {
+        const float thumbWidth = 6.0f;
+        const float thumbMargin = 4.0f;
+        const float visibleRatio = std::clamp(popupFrame.height / std::max(contentHeight, popupFrame.height), 0.0f, 1.0f);
+        const float thumbHeight = std::max(22.0f, popupFrame.height * visibleRatio);
+        const float travel = std::max(0.0f, popupFrame.height - thumbHeight);
+        const float thumbY = popupFrame.y + (maxScroll > 0.0f ? (scrollOffsetY / maxScroll) * travel : 0.0f);
+        const float thumbX = popupFrame.x + popupFrame.width - thumbWidth - thumbMargin;
+        return RectFrame{thumbX, thumbY, thumbWidth, thumbHeight};
     }
 
     static float listOverlap(float visibleListHeight) {
@@ -284,6 +441,11 @@ private:
     std::string placeholder_;
     int selectedIndex_ = -1;
     float fontSize_ = 20.0f;
+    int maxVisibleItems_ = 6;
+    float scrollStep_ = 48.0f;
+    float scrollOffsetY_ = 0.0f;
+    bool isScrollDragging_ = false;
+    float scrollDragGrabOffsetY_ = 0.0f;
     std::function<void(int)> onChange_;
     bool isOpen_ = false;
     bool openStateInitialized_ = false;

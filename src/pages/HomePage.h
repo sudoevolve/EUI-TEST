@@ -22,12 +22,8 @@ public:
     };
 
     static void Compose(UIContext& ui, const std::string& idPrefix, const RectFrame& bounds,
-                        bool iconAccentEnabled,
-                        float progressValue,
-                        const std::vector<std::string>& segmentedItems, int segmentedIndex,
-                        const std::string& inputText,
-                        const std::vector<std::string>& comboItems, int comboSelection,
-                        const Actions& actions) {
+                        bool iconAccentEnabled, float progressValue, int segmentedIndex,
+                        const std::string& inputText, int comboSelection, const Actions& actions) {
         const PageVisualTokens visuals = CurrentPageVisuals();
         const PageHeaderLayout header = ComposePageHeader(
             ui,
@@ -36,27 +32,22 @@ public:
             "Home Controls",
             "Basic widgets use the same page spacing and top-aligned layout."
         );
-        const float gap = visuals.sectionGap;
-        const float actionsY = header.contentY;
         const bool wideActions = bounds.width >= 420.0f;
-        const float actionHeight = wideActions ? 76.0f : 144.0f;
-        const float formY = actionsY + actionHeight + gap;
-        const float formHeight = std::max(0.0f, bounds.y + bounds.height - formY);
-        const float buttonGap = 12.0f;
-        const float stackedButtonGap = 6.0f;
-        const float buttonTop = wideActions ? 18.0f : 12.0f;
         const float buttonWidth = wideActions
-            ? (bounds.width - buttonGap * 2.0f - 40.0f) / 3.0f
+            ? (bounds.width - 12.0f * 2.0f - 40.0f) / 3.0f
             : std::max(0.0f, bounds.width - 40.0f);
-        const float buttonX = bounds.x + 20.0f;
-        const float formInset = visuals.sectionInset;
-        const float columnGap = visuals.sectionGap;
+        const float formY = header.contentY + (wideActions ? 76.0f : 144.0f) + visuals.sectionGap;
+        const float formHeight = std::max(0.0f, bounds.y + bounds.height - formY);
 
-        ComposePageSection(ui, idPrefix + ".actions", RectFrame{bounds.x, actionsY, bounds.width, actionHeight});
+        ComposePageSection(
+            ui,
+            idPrefix + ".actions",
+            RectFrame{bounds.x, header.contentY, bounds.width, wideActions ? 76.0f : 144.0f}
+        );
 
         ui.button(idPrefix + ".primary")
             .text("Primary")
-            .position(buttonX, actionsY + buttonTop)
+            .position(bounds.x + 20.0f, header.contentY + (wideActions ? 18.0f : 12.0f))
             .size(buttonWidth, 40.0f)
             .style(ButtonStyle::Primary)
             .fontSize(20.0f)
@@ -70,8 +61,8 @@ public:
         ui.button(idPrefix + ".outline")
             .text("Outline")
             .position(
-                wideActions ? buttonX + buttonWidth + buttonGap : buttonX,
-                wideActions ? actionsY + buttonTop : actionsY + buttonTop + 40.0f + stackedButtonGap
+                wideActions ? bounds.x + 20.0f + buttonWidth + 12.0f : bounds.x + 20.0f,
+                wideActions ? header.contentY + 18.0f : header.contentY + 12.0f + 40.0f + 6.0f
             )
             .size(buttonWidth, 40.0f)
             .style(ButtonStyle::Outline)
@@ -83,8 +74,8 @@ public:
             .icon("\xEF\x80\x93")
             .iconPlacement(ButtonIconPlacement::Trailing)
             .position(
-                wideActions ? buttonX + (buttonWidth + buttonGap) * 2.0f : buttonX,
-                wideActions ? actionsY + buttonTop : actionsY + buttonTop + (40.0f + stackedButtonGap) * 2.0f
+                wideActions ? bounds.x + 20.0f + (buttonWidth + 12.0f) * 2.0f : bounds.x + 20.0f,
+                wideActions ? header.contentY + 18.0f : header.contentY + 12.0f + (40.0f + 6.0f) * 2.0f
             )
             .size(buttonWidth, 40.0f)
             .fontSize(20.0f)
@@ -102,18 +93,18 @@ public:
 
         ComposePageSection(ui, idPrefix + ".form", RectFrame{bounds.x, formY, bounds.width, formHeight});
 
-        const float innerX = bounds.x + formInset;
-        const float innerY = formY + formInset;
-        const float innerWidth = std::max(0.0f, bounds.width - formInset * 2.0f);
-        const float innerHeight = std::max(0.0f, formHeight - formInset * 2.0f);
+        const float innerX = bounds.x + visuals.sectionInset;
+        const float innerY = formY + visuals.sectionInset;
+        const float innerWidth = std::max(0.0f, bounds.width - visuals.sectionInset * 2.0f);
+        const float innerHeight = std::max(0.0f, formHeight - visuals.sectionInset * 2.0f);
         if (innerWidth <= 0.0f || innerHeight <= 0.0f) {
             return;
         }
 
-        const float columnWidth = std::max(0.0f, (innerWidth - columnGap) * 0.5f);
+        const float columnWidth = std::max(0.0f, (innerWidth - visuals.sectionGap) * 0.5f);
         const float leftX = innerX;
         const float leftY = innerY;
-        const float rightX = innerX + columnWidth + columnGap;
+        const float rightX = innerX + columnWidth + visuals.sectionGap;
         const float rightY = innerY;
         const float leftFieldWidth = std::max(0.0f, columnWidth - 36.0f);
         const float rightFieldWidth = std::max(0.0f, columnWidth - 36.0f);
@@ -158,7 +149,7 @@ public:
         ui.segmented(idPrefix + ".segmented")
             .position(leftX + 18.0f, leftY + 154.0f)
             .size(leftFieldWidth, 35.0f)
-            .items(segmentedItems)
+            .items({"Apple", "Banana", "Cherry"})
             .selected(segmentedIndex)
             .fontSize(20.0f)
             .onChange([action = actions.onSegmentedChange](int index) {
@@ -198,8 +189,9 @@ public:
             .size(rightFieldWidth, visuals.fieldHeight)
             .placeholder("Select an option")
             .fontSize(20.0f)
+            .maxVisibleItems(4)
             .startOpen(false)
-            .items(comboItems)
+            .items({"Apple", "Banana", "Cherry", "Grape", "Orange", "Peach", "Pear"})
             .selected(comboSelection)
             .onChange([action = actions.onComboChange](int index) {
                 if (action) {

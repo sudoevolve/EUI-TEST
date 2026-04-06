@@ -4,7 +4,6 @@
 #include "../ui/UIContext.h"
 #include "../ui/ThemeTokens.h"
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <string>
 
@@ -25,15 +24,30 @@ public:
             "Hover cards to preview DSL tracks. The samples use ui.panel / ui.polygon directly."
         );
 
-        const Layout layout = MakeLayout(bounds, header.contentY);
-        for (int index = 0; index < static_cast<int>(Cards().size()); ++index) {
-            ComposeCard(
-                ui,
-                idPrefix + ".card." + std::to_string(index),
-                CardFrame(bounds, layout, header.contentY, index),
-                Cards()[index]
-            );
-        }
+        ComposeCard(
+            ui,
+            idPrefix + ".card.0",
+            CardFrame(bounds, MakeLayout(bounds, header.contentY), header.contentY, 0),
+            CardSpec{"Fade Alpha", "Hover sample to fade between", "two opacity states.", ".hoverOpacity()", SampleKind::Fade}
+        );
+        ComposeCard(
+            ui,
+            idPrefix + ".card.1",
+            CardFrame(bounds, MakeLayout(bounds, header.contentY), header.contentY, 1),
+            CardSpec{"Uniform Scale", "Hover sample to scale", "both axes together.", ".hoverScale()", SampleKind::Scale}
+        );
+        ComposeCard(
+            ui,
+            idPrefix + ".card.2",
+            CardFrame(bounds, MakeLayout(bounds, header.contentY), header.contentY, 2),
+            CardSpec{"Move XY", "Hover sample to shift", "x / y with one builder.", ".hoverTranslate*", SampleKind::Move}
+        );
+        ComposeCard(
+            ui,
+            idPrefix + ".card.3",
+            CardFrame(bounds, MakeLayout(bounds, header.contentY), header.contentY, 3),
+            CardSpec{"Triangle Rotate", "Hover sample to rotate triangle", "and blend plate color.", "panel + polygon", SampleKind::Rotate}
+        );
     }
 
 private:
@@ -59,16 +73,6 @@ private:
         float cardWidth = 0.0f;
         float cardHeight = 0.0f;
     };
-
-    static const std::array<CardSpec, 4>& Cards() {
-        static const std::array<CardSpec, 4> cards{{
-            {"Fade Alpha", "Hover sample to fade between", "two opacity states.", ".hoverOpacity()", SampleKind::Fade},
-            {"Uniform Scale", "Hover sample to scale", "both axes together.", ".hoverScale()", SampleKind::Scale},
-            {"Move XY", "Hover sample to shift", "x / y with one builder.", ".hoverTranslate*", SampleKind::Move},
-            {"Triangle Rotate", "Hover sample to rotate triangle", "and blend plate color.", "panel + polygon", SampleKind::Rotate},
-        }};
-        return cards;
-    }
 
     static Layout MakeLayout(const RectFrame& bounds, float contentY) {
         Layout layout;

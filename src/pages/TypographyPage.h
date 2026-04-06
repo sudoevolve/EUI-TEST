@@ -31,31 +31,52 @@ public:
         ComposePageSection(ui, idPrefix + ".viewport", viewport);
 
         const bool compact = viewport.width < 640.0f;
-        const float contentWidth = std::max(0.0f, viewport.width - visuals.sectionInset * 2.0f);
-        const float scaleHeight = MeasureRowsSectionHeight(ScaleSection(), TypeRows(), compact);
-        const float mixedHeight = MeasureMixedSectionHeight();
-        const float iconHeight = MeasureRowsSectionHeight(IconSection(), IconRows(), compact);
-        const float contentHeight =
-            visuals.sectionInset + scaleHeight + visuals.sectionGap + mixedHeight + visuals.sectionGap + iconHeight;
 
-        ui.scrollArea(idPrefix + ".scroll", viewport.x, viewport.y, viewport.width, viewport.height, contentHeight, [&](float) {
+        ui.scrollArea(
+            idPrefix + ".scroll",
+            viewport.x,
+            viewport.y,
+            viewport.width,
+            viewport.height,
+            visuals.sectionInset
+                + MeasureRowsSectionHeight(ScaleSection(), TypeRows(), compact)
+                + visuals.sectionGap
+                + MeasureMixedSectionHeight()
+                + visuals.sectionGap
+                + MeasureRowsSectionHeight(IconSection(), IconRows(), compact),
+            [&](float) {
             float y = viewport.y + visuals.sectionInset;
             ComposeRowsSection(
                 ui, idPrefix + ".scale",
-                RectFrame{viewport.x + visuals.sectionInset, y, contentWidth, scaleHeight},
+                RectFrame{
+                    viewport.x + visuals.sectionInset,
+                    y,
+                    std::max(0.0f, viewport.width - visuals.sectionInset * 2.0f),
+                    MeasureRowsSectionHeight(ScaleSection(), TypeRows(), compact)
+                },
                 ScaleSection(), TypeRows(), compact
             );
-            y += scaleHeight + visuals.sectionGap;
+            y += MeasureRowsSectionHeight(ScaleSection(), TypeRows(), compact) + visuals.sectionGap;
 
             ComposeMixedSection(
                 ui, idPrefix + ".mixed",
-                RectFrame{viewport.x + visuals.sectionInset, y, contentWidth, mixedHeight}
+                RectFrame{
+                    viewport.x + visuals.sectionInset,
+                    y,
+                    std::max(0.0f, viewport.width - visuals.sectionInset * 2.0f),
+                    MeasureMixedSectionHeight()
+                }
             );
-            y += mixedHeight + visuals.sectionGap;
+            y += MeasureMixedSectionHeight() + visuals.sectionGap;
 
             ComposeRowsSection(
                 ui, idPrefix + ".icons",
-                RectFrame{viewport.x + visuals.sectionInset, y, contentWidth, iconHeight},
+                RectFrame{
+                    viewport.x + visuals.sectionInset,
+                    y,
+                    std::max(0.0f, viewport.width - visuals.sectionInset * 2.0f),
+                    MeasureRowsSectionHeight(IconSection(), IconRows(), compact)
+                },
                 IconSection(), IconRows(), compact
             );
         });

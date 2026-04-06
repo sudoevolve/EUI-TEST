@@ -64,19 +64,12 @@ public:
 private:
     void Compose() {
         const Layout layout = MakeLayout();
-        const float sidebarX = layout.sidebarX;
-        const float sidebarY = layout.sidebarY;
-        const float sidebarH = layout.sidebarH;
-        const float contentX = layout.contentX;
-        const float contentY = layout.contentY;
-        const float contentW = layout.contentW;
-        const float contentH = layout.contentH;
 
         ui_.begin("main");
 
         ui_.sidebar("sidebar")
-            .position(sidebarX, sidebarY)
-            .size(sidebarWidth_, sidebarH)
+            .position(layout.sidebarX, layout.sidebarY)
+            .size(sidebarWidth_, layout.sidebarH)
             .width(60.0f, sidebarWidth_)
             .layer(RenderLayer::Chrome)
             .brand("EUI", "NEO")
@@ -90,8 +83,8 @@ private:
             .build();
 
         ui_.glassPanel("content")
-            .position(contentX, contentY)
-            .size(contentW, contentH)
+            .position(layout.contentX, layout.contentY)
+            .size(layout.contentW, layout.contentH)
             .rounding(16.0f)
             .blur(progressValue_ * 0.15f)
             .layer(RenderLayer::Backdrop)
@@ -99,7 +92,7 @@ private:
             .build();
 
         ui_.panel("bg.red")
-            .position(contentX + contentW * 0.10f - 84.0f, contentY + 58.0f)
+            .position(layout.contentX + layout.contentW * 0.10f - 84.0f, layout.contentY + 58.0f)
             .size(196.0f, 196.0f)
             .background(0.98f, 0.36f, 0.36f, 0.92f)
             .layer(RenderLayer::Backdrop)
@@ -108,7 +101,7 @@ private:
             .build();
 
         ui_.panel("bg.green")
-            .position(contentX + contentW * 0.58f, contentY + 86.0f)
+            .position(layout.contentX + layout.contentW * 0.58f, layout.contentY + 86.0f)
             .size(164.0f, 164.0f)
             .background(0.30f, 0.92f, 0.58f, 0.88f)
             .layer(RenderLayer::Backdrop)
@@ -117,7 +110,7 @@ private:
             .build();
 
         ui_.panel("bg.blue")
-            .position(contentX + contentW * 0.30f, contentY + contentH * 0.44f)
+            .position(layout.contentX + layout.contentW * 0.30f, layout.contentY + layout.contentH * 0.44f)
             .size(246.0f, 246.0f)
             .background(0.34f, 0.52f, 1.0f, 0.90f)
             .layer(RenderLayer::Backdrop)
@@ -125,7 +118,7 @@ private:
             .zIndex(-3)
             .build();
 
-        ui_.pushClip(contentX, contentY, contentW, contentH);
+        ui_.pushClip(layout.contentX, layout.contentY, layout.contentW, layout.contentH);
         ComposeCurrentPage(PageBounds());
         ui_.popClip();
         ui_.end();
@@ -209,10 +202,8 @@ private:
                 bounds,
                 homeIconAccentEnabled_,
                 progressValue_,
-                segmentedItems_,
                 segmentedIndex_,
                 inputText_,
-                comboItems_,
                 comboSelection_,
                 actions
             );
@@ -322,10 +313,8 @@ private:
     float contentInset_ = 34.0f;
     float progressValue_ = 0.30f;
     bool homeIconAccentEnabled_ = true;
-    std::vector<std::string> segmentedItems_{"Apple", "Banana", "Cherry"};
     int segmentedIndex_ = 0;
     std::string inputText_;
-    std::vector<std::string> comboItems_{"Item 1", "Item 2", "Item 3"};
     int comboSelection_ = -1;
     float layoutSplit_ = 0.42f;
     std::uint32_t randomSeed_ = 0xC0FFEE11u;
