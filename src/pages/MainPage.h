@@ -28,6 +28,7 @@ public:
     MainPage() = default;
 
     void Update() {
+        const bool hadPendingTableToast = tableToastTrigger_;
         if (pageReveal_ < 1.0f) {
             const float previous = pageReveal_;
             pageReveal_ = Lerp(pageReveal_, 1.0f, State.deltaTime * 11.0f);
@@ -42,6 +43,9 @@ public:
         const std::uint64_t versionBeforeUpdate = stateVersion_;
         Compose();
         ui_.update();
+        if (ui_.wantsContinuousUpdate()) {
+            ui_.requestVisualRefresh(0.18f);
+        }
         if (hasPendingViewSwitch_) {
             const MainPageView target = pendingView_;
             hasPendingViewSwitch_ = false;
@@ -49,6 +53,9 @@ public:
         }
         if (stateVersion_ != versionBeforeUpdate || ui_.consumeRecomposeRequest()) {
             Compose();
+        }
+        if (hadPendingTableToast && tableToastTrigger_) {
+            tableToastTrigger_ = false;
         }
     }
 
@@ -193,9 +200,11 @@ private:
             actions.onToggleIconAccent = [this] { ToggleHomeIconAccent(); };
             actions.onProgressChange = [this](float value) { SetProgressValue(value); };
             actions.onSegmentedChange = [this](int index) { SetSegmentedIndex(index); };
+            actions.onTabChange = [this](int index) { SetTabIndex(index); };
             actions.onInputChange = [this](const std::string& text) { SetInputText(text); };
             actions.onTextAreaChange = [this](const std::string& text) { SetTextAreaText(text); };
             actions.onComboChange = [this](int index) { SetComboSelection(index); };
+            actions.onTableRowChange = [this](int index) { SetTableSelection(index); };
 
             HomePage::Compose(
                 ui_,
@@ -204,9 +213,12 @@ private:
                 homeIconAccentEnabled_,
                 progressValue_,
                 segmentedIndex_,
+                tabIndex_,
                 inputText_,
                 textAreaText_,
                 comboSelection_,
+                tableSelection_,
+                tableToastTrigger_,
                 actions
             );
             break;
@@ -260,6 +272,29 @@ private:
             return;
         }
         comboSelection_ = index;
+        ++stateVersion_;
+    }
+
+    void SetTabIndex(int index) {
+        const int clamped = std::clamp(index, 0, 2);
+        if (tabIndex_ == clamped) {
+            return;
+        }
+        tabIndex_ = clamped;
+        ++stateVersion_;
+    }
+
+    void SetTableSelection(int index) {
+        if (index >= 0) {
+            tableToastTrigger_ = true;
+        }
+        if (tableSelection_ == index) {
+            if (index >= 0) {
+                ++stateVersion_;
+            }
+            return;
+        }
+        tableSelection_ = index;
         ++stateVersion_;
     }
 
@@ -327,6 +362,9 @@ private:
     std::string inputText_;
     std::string textAreaText_;
     int comboSelection_ = -1;
+    int tabIndex_ = 0;
+    int tableSelection_ = -1;
+    bool tableToastTrigger_ = false;
     float layoutSplit_ = 0.42f;
     std::uint32_t randomSeed_ = 0xC0FFEE11u;
     int accentIndex_ = 0;

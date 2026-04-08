@@ -169,6 +169,7 @@ private:
 inline void SidebarNode::update() {
     ensureRuntimeState();
     const RectFrame shell = PrimitiveFrame(primitive_);
+    const bool inputAllowed = !(State.inputBlockedByPopup && primitive_.renderLayer != RenderLayer::Popup);
     const int clampedSelectedIndex = items_.empty()
         ? 0
         : std::clamp(selectedIndex_, 0, static_cast<int>(items_.size()) - 1);
@@ -189,7 +190,7 @@ inline void SidebarNode::update() {
 
     for (int index = 0; index < static_cast<int>(items_.size()); ++index) {
         const RectFrame itemFrame = itemFrameFor(shell, index);
-        const bool hovered = contains(itemFrame, State.mouseX, State.mouseY);
+        const bool hovered = inputAllowed && contains(itemFrame, State.mouseX, State.mouseY);
         const float targetHover = hovered ? 1.0f : 0.0f;
         if (!floatEq(itemHover_[index], targetHover, 0.001f)) {
             itemHover_[index] = Lerp(itemHover_[index], targetHover, State.deltaTime * 15.0f);
@@ -206,7 +207,7 @@ inline void SidebarNode::update() {
     }
 
     const RectFrame toggleFrame = themeFrameFor(shell);
-    const bool hoveredToggle = contains(toggleFrame, State.mouseX, State.mouseY);
+    const bool hoveredToggle = inputAllowed && contains(toggleFrame, State.mouseX, State.mouseY);
     const float targetThemeHover = hoveredToggle ? 1.0f : 0.0f;
     if (!floatEq(themeHover_, targetThemeHover, 0.001f)) {
         themeHover_ = Lerp(themeHover_, targetThemeHover, State.deltaTime * 15.0f);

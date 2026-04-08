@@ -21,8 +21,12 @@
 - `dialog`
 - `tooltip`
 - `sidebar`
+- `contextMenu`
+- `tabs`
+- `toast`
+- `table`
 
-## 新增组件速览
+## 组件速览
 
 ### 表单与选择
 

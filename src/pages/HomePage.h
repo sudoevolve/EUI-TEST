@@ -17,15 +17,18 @@ public:
         std::function<void()> onToggleIconAccent;
         std::function<void(float)> onProgressChange;
         std::function<void(int)> onSegmentedChange;
+        std::function<void(int)> onTabChange;
         std::function<void(const std::string&)> onInputChange;
         std::function<void(const std::string&)> onTextAreaChange;
         std::function<void(int)> onComboChange;
+        std::function<void(int)> onTableRowChange;
     };
 
     static void Compose(UIContext& ui, const std::string& idPrefix, const RectFrame& bounds,
-                        bool iconAccentEnabled, float progressValue, int segmentedIndex,
+                        bool iconAccentEnabled, float progressValue, int segmentedIndex, int tabIndex,
                         const std::string& inputText, const std::string& textAreaText,
-                        int comboSelection, const Actions& actions) {
+                        int comboSelection, int tableSelection, bool tableToastTrigger,
+                        const Actions& actions) {
         if (bounds.width <= 0.0f || bounds.height <= 0.0f) {
             return;
         }
@@ -59,6 +62,8 @@ public:
                 + 240.0f
                 + visuals.sectionGap
                 + 186.0f
+                + visuals.sectionGap
+                + 274.0f
                 + visuals.sectionGap
                 + 132.0f
                 + visuals.sectionInset,
@@ -260,9 +265,9 @@ public:
 
                 y += 240.0f + visuals.sectionGap;
 
-                ComposePageSection(ui, idPrefix + ".newwidgets", RectFrame{contentX, y, contentWidth, 186.0f});
+                ComposePageSection(ui, idPrefix + ".section3", RectFrame{contentX, y, contentWidth, 186.0f});
 
-                ui.switcher(idPrefix + ".newwidgets.switch")
+                ui.switcher(idPrefix + ".switcher")
                     .position(innerX, y + 36.0f)
                     .size(46.0f, 24.0f)
                     .checked(iconAccentEnabled)
@@ -274,7 +279,7 @@ public:
                     })
                     .build();
 
-                ui.checkbox(idPrefix + ".newwidgets.checkbox")
+                ui.checkbox(idPrefix + ".checkbox")
                     .position(innerX, y + 76.0f)
                     .size(22.0f, 22.0f)
                     .checked(progressValue >= 0.5f)
@@ -286,7 +291,7 @@ public:
                     })
                     .build();
 
-                ui.radio(idPrefix + ".newwidgets.radio")
+                ui.radio(idPrefix + ".radio")
                     .position(innerX, y + 114.0f)
                     .size(22.0f, 22.0f)
                     .selected(segmentedIndex == 2)
@@ -298,7 +303,7 @@ public:
                     })
                     .build();
 
-                ui.textArea(idPrefix + ".newwidgets.textarea")
+                ui.textArea(idPrefix + ".textArea")
                     .position(contentX + contentWidth * 0.45f, y + 30.0f)
                     .size(std::max(140.0f, contentWidth - contentWidth * 0.45f - 18.0f), 124.0f)
                     .placeholder("TextArea...")
@@ -312,7 +317,7 @@ public:
                     })
                     .build();
 
-                ui.dialog(idPrefix + ".newwidgets.dialog")
+                ui.dialog(idPrefix + ".dialog")
                     .open(segmentedIndex == 2)
                     .title("Cherry Mode")
                     .message("Segmented is on Cherry.\nClick confirm to randomize theme.")
@@ -341,6 +346,74 @@ public:
                     .build();
 
                 y += 186.0f + visuals.sectionGap;
+
+                ComposePageSection(ui, idPrefix + ".section4", RectFrame{contentX, y, contentWidth, 274.0f});
+
+                ui.tabs(idPrefix + ".tabs")
+                    .position(innerX, y + 26.0f)
+                    .size(std::max(120.0f, contentWidth - 36.0f), 40.0f)
+                    .items({"Overview", "Data", "Logs"})
+                    .selected(std::clamp(tabIndex, 0, 2))
+                    .fontSize(16.0f)
+                    .onChange([action = actions.onTabChange](int index) {
+                        if (action) {
+                            action(index);
+                        }
+                    })
+                    .build();
+
+                ui.contextMenu(idPrefix + ".contextMenu")
+                    .position(innerX, y + 78.0f)
+                    .size(std::max(120.0f, (contentWidth - 36.0f) * 0.48f), visuals.fieldHeight)
+                    .label("Right click here")
+                    .items({"Apple", "Banana", "Cherry"})
+                    .fontSize(15.0f)
+                    .onSelect([action = actions.onComboChange](int index) {
+                        if (action) {
+                            action(index);
+                        }
+                    })
+                    .build();
+
+                const std::vector<std::vector<std::string>> tableRows = {
+                    {"Progress", progressValue >= 0.5f ? "High" : "Low", std::to_string(static_cast<int>(progressValue * 100.0f)) + "%"},
+                    {"Segment", std::to_string(segmentedIndex), segmentedIndex == 2 ? "Cherry" : "Normal"},
+                    {"Combo", comboSelection >= 0 ? "Selected" : "None", comboSelection >= 0 ? std::to_string(comboSelection) : "-"}
+                };
+                const int selectedRow = (tableSelection >= 0 && tableSelection < static_cast<int>(tableRows.size()))
+                    ? tableSelection
+                    : -1;
+                const std::string toastMessage = selectedRow >= 0
+                    ? ("Toast: " + tableRows[selectedRow][0] + " | " + tableRows[selectedRow][1] + " | " + tableRows[selectedRow][2])
+                    : "Toast: click table row";
+
+                ui.toast(idPrefix + ".toast")
+                    .size(
+                        std::max(240.0f, contentWidth * 0.42f),
+                        visuals.fieldHeight
+                    )
+                    .message(toastMessage)
+                    .show(tableToastTrigger && selectedRow >= 0)
+                    .autoHide(true)
+                    .duration(2.0f)
+                    .build();
+
+                ui.table(idPrefix + ".table")
+                    .position(innerX, y + 124.0f)
+                    .size(std::max(120.0f, contentWidth - 36.0f), 124.0f)
+                    .headers({"Name", "State", "Value"})
+                    .rows(tableRows)
+                    .selectedRow(selectedRow)
+                    .fontSize(14.0f)
+                    .rowHeight(30.0f)
+                    .onRowClick([action = actions.onTableRowChange](int index) {
+                        if (action) {
+                            action(index);
+                        }
+                    })
+                    .build();
+
+                y += 274.0f + visuals.sectionGap;
 
                 ComposePageSection(ui, idPrefix + ".colors", RectFrame{contentX, y, contentWidth, 132.0f});
 

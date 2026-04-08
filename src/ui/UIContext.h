@@ -20,6 +20,10 @@
 #include "../components/TextArea.h"
 #include "../components/Dialog.h"
 #include "../components/Tooltip.h"
+#include "../components/ContextMenu.h"
+#include "../components/Tabs.h"
+#include "../components/Toast.h"
+#include "../components/Table.h"
 #include <memory>
 #include <string>
 #include <type_traits>
