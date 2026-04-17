@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -883,6 +884,82 @@ static std::string ResolveUrlImagePath(const std::string& path) {
     return {};
 }
 
+static std::string NormalizePathSlashes(std::string path) {
+    std::replace(path.begin(), path.end(), '\\', '/');
+    return path;
+}
+
+static std::string GetExecutableDirectory() {
+#if defined(_WIN32)
+    char buffer[MAX_PATH];
+    const DWORD length = GetModuleFileNameA(nullptr, buffer, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH) {
+        return {};
+    }
+    std::filesystem::path exePath(buffer);
+    return NormalizePathSlashes(exePath.parent_path().string());
+#else
+    return {};
+#endif
+}
+
+static std::string ResolveLocalResourcePath(const std::string& path) {
+    if (path.empty()) {
+        return {};
+    }
+
+    auto tryFile = [](const std::filesystem::path& candidate) -> std::string {
+        if (candidate.empty()) {
+            return {};
+        }
+        std::error_code ec;
+        if (!std::filesystem::exists(candidate, ec) || ec) {
+            return {};
+        }
+        if (!std::filesystem::is_regular_file(candidate, ec) || ec) {
+            return {};
+        }
+        return NormalizePathSlashes(candidate.lexically_normal().string());
+    };
+
+    const std::filesystem::path requested(path);
+    if (const std::string direct = tryFile(requested); !direct.empty()) {
+        return direct;
+    }
+
+    std::vector<std::filesystem::path> bases;
+    bases.emplace_back(std::filesystem::current_path());
+
+    const std::string executableDir = GetExecutableDirectory();
+    if (!executableDir.empty()) {
+        std::filesystem::path exeBase(executableDir);
+        bases.push_back(exeBase);
+        for (int depth = 0; depth < 5 && exeBase.has_parent_path(); ++depth) {
+            exeBase = exeBase.parent_path();
+            bases.push_back(exeBase);
+        }
+    }
+
+#ifdef EUI_PROJECT_SOURCE_DIR
+    bases.emplace_back(std::filesystem::path(EUI_PROJECT_SOURCE_DIR));
+#endif
+
+    static const char* prefixes[] = {"", ".", "..", "../..", "../../..", "../../../..", "../../../../.."};
+    for (const std::filesystem::path& base : bases) {
+        for (const char* prefix : prefixes) {
+            std::filesystem::path candidate = base;
+            if (prefix[0] != '\0') {
+                candidate /= prefix;
+            }
+            candidate /= requested;
+            if (const std::string resolved = tryFile(candidate); !resolved.empty()) {
+                return resolved;
+            }
+        }
+    }
+    return {};
+}
+
 static std::string ResolveImagePath(const std::string& path) {
     if (path.empty()) {
         return {};
@@ -896,19 +973,7 @@ static std::string ResolveImagePath(const std::string& path) {
         return {};
 #endif
     }
-    std::ifstream direct(path, std::ios::binary);
-    if (direct.good()) {
-        return path;
-    }
-    static const char* prefixes[] = {"./", "../", "../../", "../../../", "../../../../"};
-    for (const char* prefix : prefixes) {
-        const std::string candidate = std::string(prefix) + path;
-        std::ifstream file(candidate, std::ios::binary);
-        if (file.good()) {
-            return candidate;
-        }
-    }
-    return {};
+    return ResolveLocalResourcePath(path);
 }
 
 static bool HasSvgExtension(const std::string& path) {
@@ -1762,19 +1827,17 @@ static bool EnsureFontSourceLoaded(FontSource& source) {
 
 static FontSource* RegisterFontSourceInternal(const std::string& fontPath, float fontSize, bool useSdf,
                                               bool loadImmediately) {
-    if (FontSource* existing = FindFontSource(fontPath, fontSize, useSdf)) {
+    const std::string resolvedPath = ResolveLocalResourcePath(fontPath);
+    if (resolvedPath.empty()) {
+        return nullptr;
+    }
+
+    if (FontSource* existing = FindFontSource(resolvedPath, fontSize, useSdf)) {
         return (!loadImmediately || EnsureFontSourceLoaded(*existing)) ? existing : nullptr;
     }
 
-    if (!loadImmediately) {
-        std::ifstream file(fontPath, std::ios::binary);
-        if (!file.is_open()) {
-            return nullptr;
-        }
-    }
-
     FontSource source;
-    source.Path = fontPath;
+    source.Path = resolvedPath;
     source.PixelSize = fontSize;
     source.UseSdf = useSdf;
     if (loadImmediately && !EnsureFontSourceLoaded(source)) {

@@ -160,6 +160,7 @@ public:
     }
 
     void draw() override {
+        ensureRuntimeState();
         const RectFrame frame = PrimitiveFrame(primitive_);
         {
             PrimitiveClipScope clip(primitive_);

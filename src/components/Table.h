@@ -112,6 +112,7 @@ public:
     }
 
     void draw() override {
+        ensureRuntimeState();
         PrimitiveClipScope clip(primitive_);
         const RectFrame frame = PrimitiveFrame(primitive_);
         const float rounding = primitive_.rounding > 0.0f ? primitive_.rounding : 8.0f;

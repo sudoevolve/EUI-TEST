@@ -1,8 +1,10 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.24)
 project(EUI-NEO VERSION 1.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
+
+file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}" EUI_PROJECT_SOURCE_DIR_CMAKE)
 
 # 禁用 HTTPS 证书验证，解决国内或代理环境下下载 Github 源码失败的问题
 set(CMAKE_TLS_VERIFY OFF)
@@ -77,6 +79,7 @@ file(GLOB APP_ENTRY_FILES CONFIGURE_DEPENDS "app/*.cpp")
 
 add_library(eui_neo_core STATIC ${SRC_FILES})
 target_include_directories(eui_neo_core PUBLIC src third_party ${stb_SOURCE_DIR} ${nanosvg_SOURCE_DIR}/src)
+target_compile_definitions(eui_neo_core PUBLIC EUI_PROJECT_SOURCE_DIR="${EUI_PROJECT_SOURCE_DIR_CMAKE}")
 target_link_libraries(eui_neo_core PUBLIC glfw glad OpenGL::GL)
 if(CURL_FOUND)
     target_link_libraries(eui_neo_core PUBLIC CURL::libcurl)

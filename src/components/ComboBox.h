@@ -296,6 +296,7 @@ public:
     }
 
     void draw() override {
+        ensureRuntimeState();
         const RectFrame frame = PrimitiveFrame(primitive_);
         const UIFieldVisualTokens visuals = CurrentFieldVisuals();
         const float textScale = fontSize_ / 24.0f;

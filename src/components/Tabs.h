@@ -112,6 +112,7 @@ public:
     }
 
     void draw() override {
+        ensureRuntimeState();
         PrimitiveClipScope clip(primitive_);
         const RectFrame frame = PrimitiveFrame(primitive_);
         if (items_.empty()) {
