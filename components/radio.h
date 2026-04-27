@@ -56,14 +56,19 @@ public:
     void build() {
         const float outer = std::min(dotSize_, height_);
         const float inner = outer * 0.48f;
+        const float visibleInner = selected_ ? inner : 0.0f;
         const float outerY = (height_ - outer) * 0.5f;
-        const float innerOffset = (outer - inner) * 0.5f;
+        const float innerOffset = (outer - visibleInner) * 0.5f;
         const float labelX = outer + gap_;
         const float labelWidth = std::max(0.0f, width_ - labelX);
-        const float labelLineHeight = fontSize_ * 1.25f;
+        const float labelLineHeight = fontSize_;
+        const float labelY = std::max(0.0f, (height_ - labelLineHeight) * 0.5f);
         const float hitWidth = text_.empty()
             ? outer
             : std::min(width_, labelX + textWidth(text_, fontSize_));
+        core::Transition dotTransition = transition_;
+        dotTransition.durationSeconds = selected_ ? 0.16f : 0.10f;
+        dotTransition.ease = selected_ ? core::Ease::OutBack : core::Ease::OutCubic;
         const std::function<void()> onSelect = onSelect_;
         const std::function<void(bool)> onChange = onChange_;
 
@@ -99,23 +104,24 @@ public:
                 ui_.rect(id_ + ".inner")
                     .x(innerOffset)
                     .y(outerY + innerOffset)
-                    .size(inner, inner)
+                    .size(visibleInner, visibleInner)
                     .color(style_.selected)
-                    .radius(inner * 0.5f)
+                    .radius(visibleInner * 0.5f)
                     .opacity(selected_ ? 1.0f : 0.0f)
-                    .transition(transition_)
-                    .animate(core::AnimProperty::Opacity)
+                    .transition(dotTransition)
+                    .animate(core::AnimProperty::Frame | core::AnimProperty::Radius | core::AnimProperty::Opacity)
                     .build();
 
                 if (!text_.empty()) {
                     ui_.text(id_ + ".label")
                         .x(labelX)
-                        .size(labelWidth, height_)
+                        .y(labelY)
+                        .size(labelWidth, labelLineHeight)
                         .text(text_)
                         .fontSize(fontSize_)
                         .lineHeight(labelLineHeight)
                         .color(style_.text)
-                        .verticalAlign(core::VerticalAlign::Center)
+                        .verticalAlign(core::VerticalAlign::Top)
                         .build();
                 }
             })

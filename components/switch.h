@@ -62,7 +62,8 @@ public:
         const float knobX = margin + (checked_ ? knobTravel : 0.0f);
         const float labelX = trackWidth_ + gap_;
         const float labelWidth = std::max(0.0f, width_ - labelX);
-        const float labelLineHeight = fontSize_ * 1.25f;
+        const float labelLineHeight = fontSize_;
+        const float labelY = std::max(0.0f, (height_ - labelLineHeight) * 0.5f);
         const float hitWidth = label_.empty()
             ? trackWidth_
             : std::min(width_, labelX + textWidth(label_, fontSize_));
@@ -107,12 +108,13 @@ public:
                 if (!label_.empty()) {
                     ui_.text(id_ + ".label")
                         .x(labelX)
-                        .size(labelWidth, height_)
+                        .y(labelY)
+                        .size(labelWidth, labelLineHeight)
                         .text(label_)
                         .fontSize(fontSize_)
                         .lineHeight(labelLineHeight)
                         .color(style_.text)
-                        .verticalAlign(core::VerticalAlign::Center)
+                        .verticalAlign(core::VerticalAlign::Top)
                         .build();
                 }
             })

@@ -230,7 +230,6 @@ void composeSidebar(core::dsl::Ui& ui, float height) {
             ui.rect("sidebar.bg")
                 .size(kSidebarWidth, height)
                 .color(sidebarBg)
-                .border(1.0f, borderColor(0.80f))
                 .build();
 
             ui.rect("sidebar.accent")
@@ -805,10 +804,14 @@ void composeAnimationPage(core::dsl::Ui& ui, float width, float height) {
 void settingRow(core::dsl::Ui& ui, const std::string& id, const std::string& title, const std::string& note, bool enabled, float width, const std::function<void()>& onClick) {
     const float toggleX = std::max(0.0f, width - 80.0f);
     const float textWidth = std::max(0.0f, width - 132.0f);
+    components::SwitchStyle switchStyle(themeColors());
+    switchStyle.on = accent();
+    switchStyle.knob = optionNight
+        ? core::Color{0.96f, 0.98f, 1.0f, 1.0f}
+        : core::Color{1.0f, 1.0f, 1.0f, 1.0f};
 
     ui.stack(id)
         .size(width, 72.0f)
-        .visualStateFrom(id + ".hit", 0.985f)
         .content([&] {
             ui.rect(id + ".hit")
                 .size(width, 72.0f)
@@ -838,22 +841,24 @@ void settingRow(core::dsl::Ui& ui, const std::string& id, const std::string& tit
                 .color(textMuted())
                 .build();
 
-            ui.rect(id + ".toggle")
+            ui.stack(id + ".switch.wrap")
                 .x(toggleX)
                 .y(22.0f)
                 .size(46.0f, 26.0f)
-                .color(enabled ? accent() : surfaceActive())
-                .radius(13.0f)
-                .transition(pageTransition())
-                .build();
-
-            ui.rect(id + ".knob")
-                .x(enabled ? toggleX + 22.0f : toggleX + 4.0f)
-                .y(26.0f)
-                .size(18.0f, 18.0f)
-                .color(optionNight ? core::Color{0.96f, 0.98f, 1.0f, 1.0f} : core::Color{1.0f, 1.0f, 1.0f, 1.0f})
-                .radius(9.0f)
-                .transition(pageTransition())
+                .content([&] {
+                    components::toggleSwitch(ui, id + ".switch")
+                        .size(46.0f, 26.0f)
+                        .trackSize(46.0f, 26.0f)
+                        .checked(enabled)
+                        .style(switchStyle)
+                        .transition(pageTransition())
+                        .onChange([onClick](bool) {
+                            if (onClick) {
+                                onClick();
+                            }
+                        })
+                        .build();
+                })
                 .build();
         })
         .build();

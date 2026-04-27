@@ -81,11 +81,10 @@ public:
         const std::function<void(const std::string&)> onChange = onChange_;
         const std::function<void()> onEnter = onEnter_;
         const std::function<void(bool)> onFocus = onFocus_;
-        const float textLineHeight = fontSize_ * 1.25f;
-        const float textY = multiline_ ? inset_ : 0.0f;
-        const float textHeight = multiline_ ? std::max(0.0f, height_ - inset_ * 2.0f) : height_;
-        const float lineY = multiline_ ? textY : std::max(0.0f, (height_ - textLineHeight) * 0.5f);
-        const core::VerticalAlign textVerticalAlign = multiline_ ? core::VerticalAlign::Top : core::VerticalAlign::Center;
+        const float textLineHeight = fontSize_;
+        const float textY = multiline_ ? inset_ : std::max(0.0f, (height_ - textLineHeight) * 0.5f);
+        const float textHeight = multiline_ ? std::max(0.0f, height_ - inset_ * 2.0f) : textLineHeight;
+        const float lineY = textY;
         const float width = width_;
         const float inset = inset_;
         const float fontSize = fontSize_;
@@ -231,12 +230,12 @@ public:
                     .lineHeight(textLineHeight)
                     .color(empty ? style_.placeholder : style_.text)
                     .wrap(multiline_)
-                    .verticalAlign(textVerticalAlign)
+                    .verticalAlign(core::VerticalAlign::Top)
                     .build();
 
                 if (focused) {
                     ui_.rect(id_ + ".cursor")
-                        .position(cursorX, lineY + std::max(0.0f, (textLineHeight - fontSize_ * 1.18f) * 0.5f))
+                        .position(cursorX, std::max(0.0f, (height_ - fontSize_ * 1.18f) * 0.5f))
                         .size(1.5f, fontSize_ * 1.18f)
                         .color(style_.cursor)
                         .radius(1.0f)

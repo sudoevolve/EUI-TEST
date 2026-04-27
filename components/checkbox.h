@@ -65,7 +65,29 @@ public:
         const float boxY = (height_ - box) * 0.5f;
         const float labelX = box + gap_;
         const float labelWidth = std::max(0.0f, width_ - labelX);
-        const float labelLineHeight = fontSize_ * 1.25f;
+        const float labelLineHeight = fontSize_;
+        const float labelY = std::max(0.0f, (height_ - labelLineHeight) * 0.5f);
+        const float markThickness = std::max(2.0f, box * 0.12f);
+        const float markAngle = 0.78f;
+        const float markAngleCos = 0.7109f;
+        const float markAngleSin = 0.7033f;
+        const float markShort = checked_ ? box * 0.28f : 0.0f;
+        const float markLong = checked_ ? box * 0.46f : 0.0f;
+        const float markOverlap = markThickness * 0.70f;
+        const float markStartX = box * 0.26f;
+        const float markStartY = box * 0.55f;
+        const float markCornerX = markStartX + box * 0.28f * markAngleCos;
+        const float markCornerY = markStartY + box * 0.28f * markAngleSin;
+        const float markLongX = markCornerX - markOverlap * markAngleCos;
+        const float markLongY = markCornerY + markOverlap * markAngleSin;
+        core::Transition markShortTransition = checked_ ? transition_ : core::Transition::none();
+        markShortTransition.durationSeconds = 0.09f;
+        markShortTransition.delaySeconds = 0.0f;
+        markShortTransition.ease = core::Ease::OutCubic;
+        core::Transition markLongTransition = checked_ ? transition_ : core::Transition::none();
+        markLongTransition.durationSeconds = 0.12f;
+        markLongTransition.delaySeconds = 0.08f;
+        markLongTransition.ease = core::Ease::OutCubic;
         const float hitWidth = text_.empty()
             ? box
             : std::min(width_, labelX + textWidth(text_, fontSize_));
@@ -101,29 +123,49 @@ public:
                     .animate(core::AnimProperty::Color | core::AnimProperty::Border)
                     .build();
 
-                ui_.text(id_ + ".mark")
-                    .y(boxY + box * 0.05f)
+                ui_.stack(id_ + ".mark.clip")
+                    .y(boxY)
                     .size(box, box)
-                    .icon(0xF00C)
-                    .fontSize(box * 0.50f)
-                    .lineHeight(box)
-                    .color(style_.mark)
-                    .opacity(checked_ ? 1.0f : 0.0f)
-                    .horizontalAlign(core::HorizontalAlign::Center)
-                    .verticalAlign(core::VerticalAlign::Center)
-                    .transition(transition_)
-                    .animate(core::AnimProperty::Opacity)
+                    .clip()
+                    .content([&] {
+                        ui_.rect(id_ + ".mark.short")
+                            .x(markStartX)
+                            .y(markStartY - markThickness * 0.5f)
+                            .size(markShort, markThickness)
+                            .color(style_.mark)
+                            .radius(markThickness * 0.5f)
+                            .opacity(checked_ ? 1.0f : 0.0f)
+                            .rotate(markAngle)
+                            .transformOrigin(0.0f, 0.5f)
+                            .transition(markShortTransition)
+                            .animate(core::AnimProperty::Frame | core::AnimProperty::Opacity)
+                            .build();
+
+                        ui_.rect(id_ + ".mark.long")
+                            .x(markLongX)
+                            .y(markLongY - markThickness * 0.5f)
+                            .size(markLong + markOverlap, markThickness)
+                            .color(style_.mark)
+                            .radius(markThickness * 0.5f)
+                            .opacity(checked_ ? 1.0f : 0.0f)
+                            .rotate(-markAngle)
+                            .transformOrigin(0.0f, 0.5f)
+                            .transition(markLongTransition)
+                            .animate(core::AnimProperty::Frame | core::AnimProperty::Opacity)
+                            .build();
+                    })
                     .build();
 
                 if (!text_.empty()) {
                     ui_.text(id_ + ".label")
                         .x(labelX)
-                        .size(labelWidth, height_)
+                        .y(labelY)
+                        .size(labelWidth, labelLineHeight)
                         .text(text_)
                         .fontSize(fontSize_)
                         .lineHeight(labelLineHeight)
                         .color(style_.text)
-                        .verticalAlign(core::VerticalAlign::Center)
+                        .verticalAlign(core::VerticalAlign::Top)
                         .build();
                 }
             })
