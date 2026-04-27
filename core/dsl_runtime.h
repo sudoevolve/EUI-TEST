@@ -49,11 +49,6 @@ public:
         if (logicalWidth_ != logicalWidth || logicalHeight_ != logicalHeight) {
             needsRender_ = true;
             fullRedraw_ = true;
-            suppressFrameAnimations_ = true;
-        }
-        if (suppressNextFrameAnimations_) {
-            suppressFrameAnimations_ = true;
-            suppressNextFrameAnimations_ = false;
         }
         logicalWidth_ = logicalWidth;
         logicalHeight_ = logicalHeight;
@@ -78,16 +73,7 @@ public:
 
         const std::string capturedId = capturedInteractionId();
         const std::string hoverTargetId = !capturedId.empty() ? capturedId : hitTestInteractive(event, dpiScale);
-        forEachElement([&](const Element& element) {
-            updateInteraction(element, event, dpiScale, hoverTargetId);
-            if (element.kind == ElementKind::Rect) {
-                updateRect(element, deltaSeconds, dpiScale);
-            } else if (element.kind == ElementKind::Text) {
-                updateText(element, deltaSeconds);
-            } else if (element.kind == ElementKind::Image) {
-                updateImage(element, deltaSeconds);
-            }
-        });
+        updateElementTree(event, deltaSeconds, dpiScale, hoverTargetId);
 
         if (scrollEvent.active()) {
             updateScroll(scrollEvent, hitTestScrollable(event, dpiScale));
@@ -98,7 +84,6 @@ public:
         applyCursor(window);
 
         promoteBackdropBlurDirtyRegions();
-        suppressFrameAnimations_ = false;
 
         const bool result = needsRender_;
         needsRender_ = false;
@@ -187,6 +172,7 @@ public:
         texts_.clear();
         images_.clear();
         interactions_.clear();
+        frameTargets_.clear();
         ImagePrimitive::releaseCachedTextures();
         releaseRenderCache();
         destroyCursors();
@@ -549,13 +535,56 @@ private:
         return element.transition.enabled && hasAnimProperty(element.transition.properties, property);
     }
 
-    bool shouldAnimateFrame(const Element& element) const {
-        if (suppressFrameAnimations_) {
-            return false;
-        }
+    static bool shouldAnimateFrame(const Element& element) {
         return element.transition.enabled &&
                hasAnimProperty(element.transition.properties, AnimProperty::Frame) &&
                element.explicitFrameAnimation;
+    }
+
+    bool updateFrameTarget(const Element& element) {
+        auto item = frameTargets_.find(element.id);
+        if (item == frameTargets_.end()) {
+            frameTargets_.emplace(element.id, element.frame);
+            return false;
+        }
+
+        const bool changed = !closeEnough(item->second, element.frame);
+        item->second = element.frame;
+        return changed;
+    }
+
+    void updateElementTree(const PointerEvent& event,
+                           float deltaSeconds,
+                           float dpiScale,
+                           const std::string& hoverTargetId) {
+        const std::vector<const Element*> roots = orderedElements(ui_.roots());
+        for (const Element* root : roots) {
+            updateElementTree(*root, event, deltaSeconds, dpiScale, hoverTargetId, false);
+        }
+    }
+
+    void updateElementTree(const Element& element,
+                           const PointerEvent& event,
+                           float deltaSeconds,
+                           float dpiScale,
+                           const std::string& hoverTargetId,
+                           bool ancestorFrameChanged) {
+        const bool frameTargetChanged = updateFrameTarget(element);
+        updateInteraction(element, event, dpiScale, hoverTargetId);
+
+        if (element.kind == ElementKind::Rect) {
+            updateRect(element, deltaSeconds, dpiScale, ancestorFrameChanged);
+        } else if (element.kind == ElementKind::Text) {
+            updateText(element, deltaSeconds, ancestorFrameChanged);
+        } else if (element.kind == ElementKind::Image) {
+            updateImage(element, deltaSeconds, ancestorFrameChanged);
+        }
+
+        const bool childAncestorFrameChanged = ancestorFrameChanged || frameTargetChanged;
+        const std::vector<const Element*> children = orderedElements(element.children);
+        for (const Element* child : children) {
+            updateElementTree(*child, event, deltaSeconds, dpiScale, hoverTargetId, childAncestorFrameChanged);
+        }
     }
 
     RectInstance& rectInstance(const std::string& id) {
@@ -680,7 +709,6 @@ private:
                 element->onScroll(event);
                 needsCompose_ = true;
                 needsRender_ = true;
-                suppressNextFrameAnimations_ = true;
             }
         }
     }
@@ -737,11 +765,10 @@ private:
             });
             needsCompose_ = true;
             needsRender_ = true;
-            suppressNextFrameAnimations_ = true;
         }
     }
 
-    void updateRect(const Element& element, float deltaSeconds, float dpiScale) {
+    void updateRect(const Element& element, float deltaSeconds, float dpiScale, bool snapFrame) {
         RectInstance& instance = rectInstance(element.id);
         instance.interaction = interactionInstance(element.id).state;
         const Rect beforeRect = visualRect(instance.frame.value(), instance.shadow.value(), instance.blur.value(), instance.transform.value());
@@ -755,7 +782,7 @@ private:
         const Color currentColor = mixColor(hoverColor, element.pressedColor, press);
 
         bool changed = hoverChanged || pressChanged || (interactive && instance.interaction.changed);
-        changed = instance.frame.setTarget(element.frame, element.transition, shouldAnimateFrame(element)) || changed;
+        changed = instance.frame.setTarget(element.frame, element.transition, !snapFrame && shouldAnimateFrame(element)) || changed;
         changed = instance.color.setTarget(currentColor, element.transition, shouldAnimate(element, AnimProperty::Color)) || changed;
         changed = instance.radius.setTarget(element.radius, element.transition, shouldAnimate(element, AnimProperty::Radius)) || changed;
         changed = instance.blur.setTarget(element.blur, element.transition, shouldAnimate(element, AnimProperty::Blur)) || changed;
@@ -780,12 +807,12 @@ private:
         animating_ = animating_ || isRectAnimating(element, instance);
     }
 
-    void updateText(const Element& element, float deltaSeconds) {
+    void updateText(const Element& element, float deltaSeconds, bool snapFrame) {
         TextInstance& instance = textInstance(element.id);
         const Rect beforeRect{instance.frame.value().x, instance.frame.value().y, instance.frame.value().width, instance.frame.value().height};
 
         bool changed = false;
-        changed = instance.frame.setTarget(element.frame, element.transition, shouldAnimateFrame(element)) || changed;
+        changed = instance.frame.setTarget(element.frame, element.transition, !snapFrame && shouldAnimateFrame(element)) || changed;
         changed = instance.color.setTarget(element.textColor, element.transition, shouldAnimate(element, AnimProperty::TextColor)) || changed;
         changed = instance.opacity.setTarget(element.opacity, element.transition, shouldAnimate(element, AnimProperty::Opacity)) || changed;
 
@@ -800,12 +827,12 @@ private:
         animating_ = animating_ || isTextAnimating(instance);
     }
 
-    void updateImage(const Element& element, float deltaSeconds) {
+    void updateImage(const Element& element, float deltaSeconds, bool snapFrame) {
         ImageInstance& instance = imageInstance(element.id);
         const Rect beforeRect = imageVisualRect(instance.frame.value(), instance.transform.value());
 
         bool changed = false;
-        changed = instance.frame.setTarget(element.frame, element.transition, shouldAnimateFrame(element)) || changed;
+        changed = instance.frame.setTarget(element.frame, element.transition, !snapFrame && shouldAnimateFrame(element)) || changed;
         changed = instance.tint.setTarget(element.color, element.transition, shouldAnimate(element, AnimProperty::Color)) || changed;
         changed = instance.radius.setTarget(element.radius, element.transition, shouldAnimate(element, AnimProperty::Radius)) || changed;
         changed = instance.opacity.setTarget(element.opacity, element.transition, shouldAnimate(element, AnimProperty::Opacity)) || changed;
@@ -1164,13 +1191,12 @@ private:
     std::unordered_map<std::string, TextInstance> texts_;
     std::unordered_map<std::string, ImageInstance> images_;
     std::unordered_map<std::string, InteractionInstance> interactions_;
+    std::unordered_map<std::string, LayoutRect> frameTargets_;
     std::vector<LogicalDirtyRect> dirtyRects_;
     bool needsRender_ = true;
     bool animating_ = false;
     bool needsCompose_ = false;
     bool fullRedraw_ = true;
-    bool suppressFrameAnimations_ = false;
-    bool suppressNextFrameAnimations_ = false;
     bool wantsHandCursor_ = false;
     std::string focusedId_;
     float logicalWidth_ = 0.0f;

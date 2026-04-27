@@ -88,6 +88,8 @@ public:
         const float iconWidth = hasIcon ? iconFont * 1.15f : 0.0f;
         const float gap = hasIcon ? std::max(6.0f * scale_, h * 0.12f) : 0.0f;
         const float labelWidth = hasIcon ? std::max(0.0f, w - iconWidth - gap - 32.0f * scale_) : w;
+        const float iconY = std::max(0.0f, (h - iconFont) * 0.5f);
+        const float textY = std::max(0.0f, (h - font) * 0.5f);
 
         core::Border border = style_.border;
         border.width *= scale_;
@@ -121,24 +123,26 @@ public:
                     .content([&] {
                         if (hasIcon) {
                             ui_.text(id_ + ".icon")
-                                .size(iconWidth, h)
+                                .y(iconY)
+                                .size(iconWidth, iconFont)
                                 .icon(icon_)
                                 .fontSize(iconFont)
-                                .lineHeight(iconFont * 1.18f)
+                                .lineHeight(iconFont)
                                 .color(style_.icon)
                                 .horizontalAlign(core::HorizontalAlign::Center)
-                                .verticalAlign(core::VerticalAlign::Center)
+                                .verticalAlign(core::VerticalAlign::Top)
                                 .build();
                         }
 
                         ui_.text(id_ + ".text")
-                            .size(labelWidth, h)
+                            .y(textY)
+                            .size(labelWidth, font)
                             .text(text_)
                             .fontSize(font)
-                            .lineHeight(font * 1.18f)
+                            .lineHeight(font)
                             .color(style_.text)
                             .horizontalAlign(hasIcon ? core::HorizontalAlign::Left : core::HorizontalAlign::Center)
-                            .verticalAlign(core::VerticalAlign::Center)
+                            .verticalAlign(core::VerticalAlign::Top)
                             .build();
                     })
                     .build();

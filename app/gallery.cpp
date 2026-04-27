@@ -12,6 +12,8 @@ namespace app {
 
 namespace {
 
+constexpr core::Color kTransparent{0.0f, 0.0f, 0.0f, 0.0f};
+
 int selectedPage = 0;
 bool optionDense = false;
 bool optionGlass = false;
@@ -25,8 +27,9 @@ bool sampleChecked = true;
 bool sampleSwitch = true;
 bool sampleRadioA = true;
 std::string sampleInput = "EUI";
-float sampleProgress = 0.62f;
-float sampleScroll = 36.0f;
+float sampleSlider = 0.44f;
+int sampleSegment = 1;
+int sampleTab = 0;
 float pageScroll[6] = {};
 
 constexpr float kSidebarWidth = 272.0f;
@@ -522,7 +525,7 @@ void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
             components::button(ui, "control.primary")
                 .size(buttonWidth, 54.0f)
                 .icon(0xF00C)
-                .text("Primary")
+                .text("Filled")
                 .colors(themeColors().primary, buttonHover(themeColors().primary), buttonPressed(themeColors().primary))
                 .border(1.0f, withAlpha(themeColors().primary, 0.58f))
                 .shadow(14.0f, 0.0f, 5.0f, shadowColor(0.22f, 0.10f))
@@ -532,22 +535,24 @@ void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
             components::button(ui, "control.soft")
                 .size(buttonWidth, 54.0f)
                 .icon(0xF0C8)
-                .text("Soft")
-                .colors(surfaceSoft(), buttonHover(surfaceSoft()), buttonPressed(surfaceSoft()))
-                .textColor(textPrimary())
-                .iconColor(textPrimary())
-                .border(1.0f, borderColor(0.70f))
-                .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
+                .text("Outline")
+                .colors(kTransparent, withAlpha(themeColors().primary, 0.10f), withAlpha(themeColors().primary, 0.18f))
+                .textColor(themeColors().primary)
+                .iconColor(themeColors().primary)
+                .border(1.0f, withAlpha(themeColors().primary, 0.78f))
+                .shadow(0.0f, 0.0f, 0.0f, shadowColor(0.0f, 0.0f))
                 .transition(pageTransition())
                 .build();
 
             components::button(ui, "control.warn")
                 .size(buttonWidth, 54.0f)
-                .icon(0xF071)
-                .text("Warning")
-                .colors({0.76f, 0.48f, 0.20f, 1.0f}, {0.92f, 0.62f, 0.30f, 1.0f}, {0.46f, 0.24f, 0.08f, 1.0f})
-                .border(1.0f, borderColor(0.70f))
-                .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
+                .icon(0xF1FC)
+                .text("Ghost")
+                .colors(kTransparent, withAlpha(themeColors().primary, 0.08f), withAlpha(themeColors().primary, 0.14f))
+                .textColor(themeColors().primary)
+                .iconColor(themeColors().primary)
+                .border(0.0f, kTransparent)
+                .shadow(0.0f, 0.0f, 0.0f, shadowColor(0.0f, 0.0f))
                 .transition(pageTransition())
                 .build();
         });
@@ -611,27 +616,47 @@ void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
                 .build();
         });
 
-    ui.row("controls.progress.scroll")
-        .size(fieldWidth, 54.0f)
+    components::progress(ui, "control.progress")
+        .theme(themeColors())
+        .size(fieldWidth, 14.0f)
+        .value(sampleSlider)
+        .transition(core::Transition::none())
+        .build();
+
+    components::slider(ui, "control.slider")
+        .theme(themeColors())
+        .size(fieldWidth, 32.0f)
+        .value(sampleSlider)
+        .transition(pageTransition())
+        .onChange([](float value) {
+            sampleSlider = value;
+        })
+        .build();
+
+    ui.row("controls.choice")
+        .size(fieldWidth, 46.0f)
         .gap(18.0f)
         .alignItems(core::Align::CENTER)
         .content([&] {
-            components::progress(ui, "control.progress")
+            components::segmented(ui, "control.segmented")
                 .theme(themeColors())
-                .size(std::max(160.0f, fieldWidth - 34.0f), 14.0f)
-                .value(sampleProgress)
+                .size(std::max(180.0f, (fieldWidth - 18.0f) * 0.5f), 38.0f)
+                .items({"Small", "Medium", "Large"})
+                .selected(sampleSegment)
                 .transition(pageTransition())
+                .onChange([](int index) {
+                    sampleSegment = index;
+                })
                 .build();
 
-            components::scroll(ui, "control.scroll")
+            components::tabs(ui, "control.tabs")
                 .theme(themeColors())
-                .size(8.0f, 54.0f)
-                .viewport(54.0f)
-                .content(160.0f)
-                .offset(sampleScroll)
-                .onChange([](float value) {
-                    sampleScroll = value;
-                    sampleProgress = std::clamp(value / 106.0f, 0.0f, 1.0f);
+                .size(std::max(180.0f, (fieldWidth - 18.0f) * 0.5f), 42.0f)
+                .items({"Overview", "Details", "Logs"})
+                .selected(sampleTab)
+                .transition(pageTransition())
+                .onChange([](int index) {
+                    sampleTab = index;
                 })
                 .build();
         });
@@ -1074,7 +1099,7 @@ void composePageBody(core::dsl::Ui& ui, float width, float height) {
 
 float pageBodyContentHeight(float viewportHeight) {
     if (selectedPage == 0) {
-        return std::max(viewportHeight, optionDense ? 760.0f : 820.0f);
+        return std::max(viewportHeight, optionDense ? 840.0f : 920.0f);
     }
     if (selectedPage == 1) {
         return std::max(viewportHeight, 420.0f);

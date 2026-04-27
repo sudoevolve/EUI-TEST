@@ -72,7 +72,6 @@ public:
 
         ui_.stack(id_)
             .size(width_, height_)
-            .visualStateFrom(id_ + ".hit", 0.985f)
             .content([&] {
                 ui_.rect(id_ + ".hit")
                     .size(hitWidth, height_)

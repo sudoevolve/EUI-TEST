@@ -68,13 +68,12 @@ public:
             : std::min(width_, labelX + textWidth(text_, fontSize_));
         core::Transition dotTransition = transition_;
         dotTransition.durationSeconds = selected_ ? 0.16f : 0.10f;
-        dotTransition.ease = selected_ ? core::Ease::OutBack : core::Ease::OutCubic;
+        dotTransition.ease = core::Ease::OutCubic;
         const std::function<void()> onSelect = onSelect_;
         const std::function<void(bool)> onChange = onChange_;
 
         ui_.stack(id_)
             .size(width_, height_)
-            .visualStateFrom(id_ + ".hit", 0.985f)
             .content([&] {
                 ui_.rect(id_ + ".hit")
                     .size(hitWidth, height_)

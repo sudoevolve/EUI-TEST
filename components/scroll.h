@@ -106,7 +106,7 @@ public:
                     .radius(style_.radius)
                     .cursor(core::CursorShape::Hand)
                     .transition(transition_)
-                    .animate(core::AnimProperty::Frame | core::AnimProperty::Color)
+                    .animate(core::AnimProperty::Color)
                     .onDrag([scrollable, currentOffset, maxOffset, travel, onChange](const core::dsl::DragEvent& event) {
                         if (!scrollable || !onChange || travel <= 0.0f) {
                             return;
