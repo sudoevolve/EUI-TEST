@@ -249,10 +249,10 @@ Frame 动画需要显式 `.animate(core::AnimProperty::Frame)`。窗口大小变
 
 当前组件：
 
-- `components::panel(ui, id)`：直接返回 `ui.rect(id)`。
-- `components::text(ui, id)`：直接返回 `ui.text(id)`。
-- `components::label(ui, id)`：直接返回 `ui.label(id)`。
-- `components::image(ui, id)`：直接返回 `ui.image(id)`。
+- `components::panel(ui, id)`：返回套用 theme token 的 `RectBuilder`。
+- `components::text(ui, id)`：返回套用 theme token 文本色的 `TextBuilder`。
+- `components::label(ui, id)`：返回套用 theme token 文本色的 label builder。
+- `components::image(ui, id)`：返回套用 theme token 的 `ImageBuilder`。
 - `components::button(ui, id)`：薄 builder，内部组合 `Stack + Rect + Row + Text`。
 
 按钮示例：

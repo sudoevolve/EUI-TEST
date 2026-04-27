@@ -1,5 +1,6 @@
 #pragma once
 
+#include "components/theme.h"
 #include "core/dsl.h"
 
 #include <algorithm>
@@ -10,13 +11,26 @@
 namespace components {
 
 struct ButtonStyle {
-    core::Color normal = {0.13f, 0.47f, 0.86f, 1.0f};
-    core::Color hover = {0.20f, 0.62f, 0.95f, 1.0f};
-    core::Color pressed = {0.08f, 0.30f, 0.62f, 1.0f};
-    core::Color text = {0.94f, 0.97f, 1.0f, 1.0f};
-    core::Color icon = {0.94f, 0.97f, 1.0f, 1.0f};
-    core::Border border = {1.0f, {0.55f, 0.78f, 1.0f, 0.40f}};
-    core::Shadow shadow = {true, {0.0f, 4.0f}, 14.0f, 0.0f, {0.0f, 0.0f, 0.0f, 0.22f}};
+    ButtonStyle() : ButtonStyle(theme::DarkThemeColors()) {}
+
+    explicit ButtonStyle(const theme::ThemeColorTokens& tokens, bool primary = true) {
+        const core::Color base = primary ? tokens.primary : tokens.surface;
+        normal = base;
+        hover = theme::buttonHover(tokens, base);
+        pressed = theme::buttonPressed(tokens, base);
+        text = primary || tokens.dark ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : tokens.text;
+        icon = text;
+        border = theme::buttonBorder(tokens, primary);
+        shadow = theme::buttonShadow(tokens);
+    }
+
+    core::Color normal;
+    core::Color hover;
+    core::Color pressed;
+    core::Color text;
+    core::Color icon;
+    core::Border border;
+    core::Shadow shadow;
     float radius = 16.0f;
     float opacity = 1.0f;
     float pressScale = 0.965f;
@@ -37,6 +51,12 @@ public:
     ButtonBuilder& textColor(const core::Color& value) { style_.text = value; return *this; }
     ButtonBuilder& iconColor(const core::Color& value) { style_.icon = value; return *this; }
     ButtonBuilder& style(const ButtonStyle& value) { style_ = value; return *this; }
+    ButtonBuilder& theme(const theme::ThemeColorTokens& tokens, bool primary = true) {
+        style_ = ButtonStyle(tokens, primary);
+        return *this;
+    }
+    ButtonBuilder& primaryTheme(const theme::ThemeColorTokens& tokens) { return theme(tokens, true); }
+    ButtonBuilder& secondaryTheme(const theme::ThemeColorTokens& tokens) { return theme(tokens, false); }
     ButtonBuilder& radius(float value) { style_.radius = value; return *this; }
     ButtonBuilder& rounding(float value) { return radius(value); }
     ButtonBuilder& opacity(float value) { style_.opacity = std::clamp(value, 0.0f, 1.0f); return *this; }

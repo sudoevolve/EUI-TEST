@@ -1,5 +1,6 @@
 #pragma once
 
+#include "components/theme.h"
 #include "core/dsl.h"
 #include "core/text.h"
 
@@ -9,12 +10,52 @@ namespace components {
 
 using TextStyle = core::TextStyle;
 
+inline TextStyle bodyTextStyle(const theme::ThemeColorTokens& tokens, const std::string& value = "") {
+    TextStyle style;
+    style.text = value;
+    style.color = theme::pageVisuals(tokens).bodyColor;
+    style.fontSize = theme::pageVisuals(tokens).labelSize;
+    return style;
+}
+
+inline TextStyle titleTextStyle(const theme::ThemeColorTokens& tokens, const std::string& value = "") {
+    TextStyle style;
+    style.text = value;
+    style.color = theme::pageVisuals(tokens).titleColor;
+    style.fontSize = theme::pageVisuals(tokens).headerTitleSize;
+    return style;
+}
+
+inline TextStyle subtitleTextStyle(const theme::ThemeColorTokens& tokens, const std::string& value = "") {
+    TextStyle style;
+    style.text = value;
+    style.color = theme::pageVisuals(tokens).subtitleColor;
+    style.fontSize = theme::pageVisuals(tokens).headerSubtitleSize;
+    return style;
+}
+
 inline core::dsl::TextBuilder text(core::dsl::Ui& ui, const std::string& id) {
-    return ui.text(id);
+    auto builder = ui.text(id);
+    builder.color(theme::DarkThemeColors().text);
+    return builder;
+}
+
+inline core::dsl::TextBuilder text(core::dsl::Ui& ui, const std::string& id, const theme::ThemeColorTokens& tokens) {
+    auto builder = ui.text(id);
+    builder.color(tokens.text);
+    return builder;
 }
 
 inline core::dsl::TextBuilder label(core::dsl::Ui& ui, const std::string& id) {
-    return ui.label(id);
+    auto builder = ui.label(id);
+    builder.color(theme::DarkThemeColors().text);
+    return builder;
+}
+
+inline core::dsl::TextBuilder label(core::dsl::Ui& ui, const std::string& id, const theme::ThemeColorTokens& tokens) {
+    auto builder = ui.label(id);
+    builder.color(tokens.text);
+    return builder;
 }
 
 inline core::dsl::TextBuilder text(core::dsl::Ui& ui, const std::string& id, const TextStyle& style) {

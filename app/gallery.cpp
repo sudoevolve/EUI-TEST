@@ -17,6 +17,7 @@ bool optionDense = false;
 bool optionGlass = false;
 bool optionMotion = true;
 bool optionLimit60 = true;
+bool optionNight = true;
 bool animationMoved = false;
 bool animationRotated = false;
 bool animationFaded = false;
@@ -52,27 +53,72 @@ double galleryFrameRateLimit() {
     return optionLimit60 ? 60.0 : 0.0;
 }
 
+components::theme::ThemeColorTokens themeColors() {
+    return optionNight ? components::theme::DarkThemeColors() : components::theme::LightThemeColors();
+}
+
+components::theme::PageVisualTokens pageVisuals() {
+    return components::theme::pageVisuals(themeColors());
+}
+
+core::Color withAlpha(core::Color color, float alpha) {
+    return components::theme::withAlpha(color, alpha);
+}
+
+core::Color mixTheme(core::Color from, core::Color to, float amount) {
+    return core::mixColor(from, to, amount);
+}
+
 core::Color appBg() {
-    return {0.07f, 0.08f, 0.10f, 1.0f};
+    return themeColors().background;
 }
 
 core::Color surface() {
-    return {0.11f, 0.13f, 0.17f, 1.0f};
+    return themeColors().surface;
 }
 
 core::Color surfaceSoft() {
-    return {0.15f, 0.17f, 0.22f, 1.0f};
+    return themeColors().surfaceHover;
+}
+
+core::Color surfaceActive() {
+    return themeColors().surfaceActive;
 }
 
 core::Color textPrimary() {
-    return {0.94f, 0.97f, 1.0f, 1.0f};
+    return pageVisuals().titleColor;
 }
 
 core::Color textMuted() {
-    return {0.62f, 0.70f, 0.82f, 1.0f};
+    return pageVisuals().subtitleColor;
+}
+
+core::Color bodyText() {
+    return pageVisuals().bodyColor;
+}
+
+core::Color borderColor(float alpha = 1.0f) {
+    return components::theme::withOpacity(themeColors().border, alpha);
+}
+
+core::Color shadowColor(float darkAlpha = 0.28f, float lightAlpha = 0.12f) {
+    return optionNight
+        ? core::Color{0.0f, 0.0f, 0.0f, darkAlpha}
+        : core::Color{0.10f, 0.14f, 0.22f, lightAlpha};
+}
+
+core::Color buttonHover(const core::Color& base) {
+    return mixTheme(base, optionNight ? core::Color{1.0f, 1.0f, 1.0f, base.a} : themeColors().primary, optionNight ? 0.16f : 0.10f);
+}
+
+core::Color buttonPressed(const core::Color& base) {
+    return mixTheme(base, optionNight ? core::Color{0.0f, 0.0f, 0.0f, base.a} : themeColors().surfaceActive, optionNight ? 0.34f : 0.22f);
 }
 
 core::Color accentForPage(int page) {
+    if (page == 0) {
+        return themeColors().primary;
+    }
     if (page == 1) {
         return {0.88f, 0.42f, 0.58f, 1.0f};
     }
@@ -147,16 +193,21 @@ void caption(core::dsl::Ui& ui, const std::string& id, const std::string& text, 
 
 void navItem(core::dsl::Ui& ui, const std::string& id, const std::string& label, unsigned int icon, int page) {
     const bool active = selectedPage == page;
+    const core::Color normal = active ? accentForPage(page) : surface();
+    const core::Color hover = active ? buttonHover(accentForPage(page)) : surfaceSoft();
+    const core::Color pressed = active ? buttonPressed(accentForPage(page)) : surfaceActive();
     components::button(ui, id)
         .size(212.0f, 50.0f)
         .icon(icon)
         .iconSize(16.0f)
         .fontSize(17.0f)
         .text(label)
-        .colors(active ? accentForPage(page) : core::Color{0.12f, 0.14f, 0.18f, 1.0f},
-                active ? core::Color{0.36f, 0.68f, 0.98f, 1.0f} : core::Color{0.17f, 0.20f, 0.26f, 1.0f},
-                active ? core::Color{0.12f, 0.30f, 0.54f, 1.0f} : core::Color{0.08f, 0.10f, 0.14f, 1.0f})
+        .colors(normal, hover, pressed)
+        .textColor(active || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
+        .iconColor(active || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
         .radius(12.0f)
+        .border(1.0f, active ? withAlpha(accentForPage(page), 0.58f) : borderColor(0.60f))
+        .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
         .transition(pageTransition())
         .onClick([page] {
             selectedPage = page;
@@ -165,13 +216,14 @@ void navItem(core::dsl::Ui& ui, const std::string& id, const std::string& label,
 }
 
 void composeSidebar(core::dsl::Ui& ui, float height) {
+    const core::Color sidebarBg = optionNight ? mixTheme(appBg(), core::Color{0.0f, 0.0f, 0.0f, 1.0f}, 0.24f) : surface();
     ui.stack("sidebar")
         .size(kSidebarWidth, height)
         .content([&] {
             ui.rect("sidebar.bg")
                 .size(kSidebarWidth, height)
-                .color({0.055f, 0.065f, 0.085f, 1.0f})
-                .border(1.0f, {0.18f, 0.22f, 0.28f, 1.0f})
+                .color(sidebarBg)
+                .border(1.0f, borderColor(0.80f))
                 .build();
 
             ui.rect("sidebar.accent")
@@ -218,6 +270,31 @@ void composeSidebar(core::dsl::Ui& ui, float height) {
                     navItem(ui, "nav.bing", "Bing", 0xF1C5, 4);
                     navItem(ui, "nav.about", "About", 0xF05A, 5);
                 });
+
+            ui.stack("sidebar.theme")
+                .x(30.0f)
+                .y(std::max(0.0f, height - 82.0f))
+                .size(212.0f, 50.0f)
+                .content([&] {
+                    components::button(ui, "nav.theme")
+                        .size(212.0f, 50.0f)
+                        .icon(optionNight ? 0xF185 : 0xF186)
+                        .iconSize(16.0f)
+                        .fontSize(17.0f)
+                        .text(optionNight ? "Light Mode" : "Night Mode")
+                        .colors(surface(), surfaceSoft(), surfaceActive())
+                        .textColor(textPrimary())
+                        .iconColor(accent())
+                        .radius(12.0f)
+                        .border(1.0f, borderColor(0.80f))
+                        .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
+                        .transition(pageTransition())
+                        .onClick([] {
+                            optionNight = !optionNight;
+                        })
+                        .build();
+                })
+                .build();
         });
 }
 
@@ -229,18 +306,18 @@ void propertyCard(core::dsl::Ui& ui, const std::string& id, const std::string& t
         .content([&] {
             auto rect = ui.rect(id + ".bg")
                 .size(width, 144.0f)
-                .states(color, {color.r + 0.08f, color.g + 0.08f, color.b + 0.08f, color.a}, {color.r * 0.62f, color.g * 0.62f, color.b * 0.62f, color.a})
+                .states(color, buttonHover(color), buttonPressed(color))
                 .radius(18.0f)
                 .transition(pageTransition());
 
             if (kind == "border") {
-                rect.border(3.0f, {0.62f, 0.82f, 1.0f, 1.0f});
+                rect.border(3.0f, accent());
             } else if (kind == "shadow") {
-                rect.shadow(28.0f, 0.0f, 12.0f, {0.0f, 0.0f, 0.0f, 0.34f});
+                rect.shadow(28.0f, 0.0f, 12.0f, shadowColor(0.34f, 0.18f));
             } else if (kind == "blur") {
                 rect.opacity(optionGlass ? 1.0f : 0.82f)
                     .blur(optionGlass ? 18.0f : 0.0f)
-                    .border(1.0f, {1.0f, 1.0f, 1.0f, optionGlass ? 0.35f : 0.18f});
+                    .border(1.0f, optionGlass ? withAlpha(textPrimary(), 0.35f) : borderColor(0.70f));
             } else if (kind == "rotate") {
                 rect.rotate(0.08f).transformOrigin(0.5f, 0.5f);
             }
@@ -269,9 +346,9 @@ void imageCard(core::dsl::Ui& ui, const std::string& id, const std::string& titl
         .content([&] {
             ui.rect(id + ".bg")
                 .size(width, height)
-                .color({0.09f, 0.11f, 0.15f, 1.0f})
+                .color(surface())
                 .radius(18.0f)
-                .border(1.0f, {0.22f, 0.28f, 0.36f, 1.0f})
+                .border(1.0f, borderColor())
                 .build();
 
             ui.image(id + ".image")
@@ -305,9 +382,9 @@ void bingImageCard(core::dsl::Ui& ui, const std::string& id, float width,
         .content([&] {
             ui.rect(id + ".bg")
                 .size(width, height)
-                .color({0.09f, 0.11f, 0.15f, 1.0f})
+                .color(surface())
                 .radius(18.0f)
-                .border(1.0f, {0.22f, 0.28f, 0.36f, 1.0f})
+                .border(1.0f, borderColor())
                 .build();
 
             ui.image(id + ".image")
@@ -339,9 +416,9 @@ void mediaThumb(core::dsl::Ui& ui, const std::string& id, const std::string& tit
         .content([&] {
             ui.rect(id + ".bg")
                 .size(width, 88.0f)
-                .color({0.09f, 0.11f, 0.15f, 1.0f})
+                .color(surface())
                 .radius(12.0f)
-                .border(1.0f, {0.22f, 0.28f, 0.36f, 1.0f})
+                .border(1.0f, borderColor())
                 .build();
 
             auto image = ui.image(id + ".image")
@@ -428,6 +505,9 @@ void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
                 .size(buttonWidth, 54.0f)
                 .icon(0xF00C)
                 .text("Primary")
+                .colors(themeColors().primary, buttonHover(themeColors().primary), buttonPressed(themeColors().primary))
+                .border(1.0f, withAlpha(themeColors().primary, 0.58f))
+                .shadow(14.0f, 0.0f, 5.0f, shadowColor(0.22f, 0.10f))
                 .transition(pageTransition())
                 .build();
 
@@ -435,7 +515,11 @@ void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
                 .size(buttonWidth, 54.0f)
                 .icon(0xF0C8)
                 .text("Soft")
-                .colors(surfaceSoft(), {0.22f, 0.28f, 0.36f, 1.0f}, {0.09f, 0.11f, 0.15f, 1.0f})
+                .colors(surfaceSoft(), buttonHover(surfaceSoft()), buttonPressed(surfaceSoft()))
+                .textColor(textPrimary())
+                .iconColor(textPrimary())
+                .border(1.0f, borderColor(0.70f))
+                .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
                 .transition(pageTransition())
                 .build();
 
@@ -444,6 +528,8 @@ void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
                 .icon(0xF071)
                 .text("Warning")
                 .colors({0.76f, 0.48f, 0.20f, 1.0f}, {0.92f, 0.62f, 0.30f, 1.0f}, {0.46f, 0.24f, 0.08f, 1.0f})
+                .border(1.0f, borderColor(0.70f))
+                .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
                 .transition(pageTransition())
                 .build();
         });
@@ -453,8 +539,8 @@ void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
         .gap(cardGap)
         .content([&] {
             propertyCard(ui, "prop.color", "Color", "hover + press", {0.22f, 0.48f, 0.82f, 1.0f}, "color", cardWidth);
-            propertyCard(ui, "prop.border", "Border", "animated edge", {0.10f, 0.12f, 0.16f, 1.0f}, "border", cardWidth);
-            propertyCard(ui, "prop.shadow", "Shadow", "elevation", {0.18f, 0.22f, 0.30f, 1.0f}, "shadow", cardWidth);
+            propertyCard(ui, "prop.border", "Border", "animated edge", surface(), "border", cardWidth);
+            propertyCard(ui, "prop.shadow", "Shadow", "elevation", surfaceSoft(), "shadow", cardWidth);
         });
 
     ui.row("properties.b")
@@ -490,10 +576,10 @@ void composeTextPage(core::dsl::Ui& ui, float width, float height) {
         .gap(12.0f)
         .content([&] {
             textSample(ui, "txt.display", "Display 48 - Gallery Title", 48.0f, 58.0f, textWidth, textPrimary());
-            textSample(ui, "txt.h1", "Heading 36 - Section Header", 36.0f, 46.0f, textWidth, {0.86f, 0.92f, 1.0f, 1.0f});
-            textSample(ui, "txt.h2", "Heading 28 - Component Name", 28.0f, 38.0f, textWidth, {0.78f, 0.86f, 1.0f, 1.0f});
-            textSample(ui, "txt.body", "Body 20 - Text can wrap, align and use custom colors.", 20.0f, 30.0f, textWidth, textMuted());
-            textSample(ui, "txt.small", "Small 15 - Secondary metadata and compact labels.", 15.0f, 24.0f, textWidth, {0.50f, 0.58f, 0.70f, 1.0f});
+            textSample(ui, "txt.h1", "Heading 36 - Section Header", 36.0f, 46.0f, textWidth, withAlpha(textPrimary(), 0.92f));
+            textSample(ui, "txt.h2", "Heading 28 - Component Name", 28.0f, 38.0f, textWidth, withAlpha(textPrimary(), 0.82f));
+            textSample(ui, "txt.body", "Body 20 - Text can wrap, align and use custom colors.", 20.0f, 30.0f, textWidth, bodyText());
+            textSample(ui, "txt.small", "Small 15 - Secondary metadata and compact labels.", 15.0f, 24.0f, textWidth, withAlpha(textPrimary(), 0.58f));
 
             ui.row("text.icons")
                 .size(iconRowWidth, 74.0f)
@@ -538,7 +624,13 @@ void composeAnimationPage(core::dsl::Ui& ui, float width, float height) {
             components::button(ui, "anim.move")
                 .size(buttonWidth, 50.0f)
                 .text("Move")
-                .colors(animationMoved ? accent() : surfaceSoft(), {0.34f, 0.64f, 0.96f, 1.0f}, {0.10f, 0.24f, 0.44f, 1.0f})
+                .colors(animationMoved ? accent() : surfaceSoft(),
+                        buttonHover(animationMoved ? accent() : surfaceSoft()),
+                        buttonPressed(animationMoved ? accent() : surfaceSoft()))
+                .textColor(animationMoved || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
+                .iconColor(animationMoved || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
+                .border(1.0f, animationMoved ? withAlpha(accent(), 0.58f) : borderColor(0.70f))
+                .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
                 .onClick([] { animationMoved = !animationMoved; })
                 .transition(pageTransition())
                 .build();
@@ -547,8 +639,12 @@ void composeAnimationPage(core::dsl::Ui& ui, float width, float height) {
                 .size(buttonWidth, 50.0f)
                 .text("Rotate")
                 .colors(animationRotated ? core::Color{0.84f, 0.46f, 0.60f, 1.0f} : surfaceSoft(),
-                        {0.96f, 0.54f, 0.68f, 1.0f},
-                        {0.46f, 0.18f, 0.30f, 1.0f})
+                        buttonHover(animationRotated ? core::Color{0.84f, 0.46f, 0.60f, 1.0f} : surfaceSoft()),
+                        buttonPressed(animationRotated ? core::Color{0.84f, 0.46f, 0.60f, 1.0f} : surfaceSoft()))
+                .textColor(animationRotated || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
+                .iconColor(animationRotated || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
+                .border(1.0f, animationRotated ? withAlpha(core::Color{0.84f, 0.46f, 0.60f, 1.0f}, 0.58f) : borderColor(0.70f))
+                .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
                 .onClick([] { animationRotated = !animationRotated; })
                 .transition(pageTransition())
                 .build();
@@ -557,8 +653,12 @@ void composeAnimationPage(core::dsl::Ui& ui, float width, float height) {
                 .size(buttonWidth, 50.0f)
                 .text("Fade")
                 .colors(animationFaded ? core::Color{0.50f, 0.72f, 0.34f, 1.0f} : surfaceSoft(),
-                        {0.62f, 0.84f, 0.44f, 1.0f},
-                        {0.24f, 0.42f, 0.18f, 1.0f})
+                        buttonHover(animationFaded ? core::Color{0.50f, 0.72f, 0.34f, 1.0f} : surfaceSoft()),
+                        buttonPressed(animationFaded ? core::Color{0.50f, 0.72f, 0.34f, 1.0f} : surfaceSoft()))
+                .textColor(animationFaded || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
+                .iconColor(animationFaded || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
+                .border(1.0f, animationFaded ? withAlpha(core::Color{0.50f, 0.72f, 0.34f, 1.0f}, 0.58f) : borderColor(0.70f))
+                .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
                 .onClick([] { animationFaded = !animationFaded; })
                 .transition(pageTransition())
                 .build();
@@ -569,9 +669,9 @@ void composeAnimationPage(core::dsl::Ui& ui, float width, float height) {
         .content([&] {
             ui.rect("animation.stage.bg")
                 .size(stageWidth, stageHeight)
-                .color({0.09f, 0.11f, 0.15f, 1.0f})
+                .color(surface())
                 .radius(24.0f)
-                .border(1.0f, {0.22f, 0.28f, 0.36f, 1.0f})
+                .border(1.0f, borderColor())
                 .build();
 
             ui.rect("animation.actor")
@@ -582,7 +682,7 @@ void composeAnimationPage(core::dsl::Ui& ui, float width, float height) {
                 .radius(animationRotated ? 30.0f : 18.0f)
                 .rotate(animationRotated ? 0.42f : 0.0f)
                 .opacity(animationFaded ? 0.36f : 1.0f)
-                .shadow(26.0f, 0.0f, 12.0f, {0.0f, 0.0f, 0.0f, 0.32f})
+                .shadow(26.0f, 0.0f, 12.0f, shadowColor(0.32f, 0.16f))
                 .transition(motionTransition())
                 .animate(core::AnimProperty::Frame | core::AnimProperty::Color | core::AnimProperty::Opacity |
                          core::AnimProperty::Radius | core::AnimProperty::Shadow | core::AnimProperty::Transform)
@@ -600,7 +700,7 @@ void settingRow(core::dsl::Ui& ui, const std::string& id, const std::string& tit
         .content([&] {
             ui.rect(id + ".hit")
                 .size(width, 72.0f)
-                .states(surfaceSoft(), {0.20f, 0.24f, 0.30f, 1.0f}, {0.09f, 0.11f, 0.15f, 1.0f})
+                .states(surfaceSoft(), buttonHover(surfaceSoft()), buttonPressed(surfaceSoft()))
                 .radius(16.0f)
                 .transition(pageTransition())
                 .onClick(onClick)
@@ -630,7 +730,7 @@ void settingRow(core::dsl::Ui& ui, const std::string& id, const std::string& tit
                 .x(toggleX)
                 .y(22.0f)
                 .size(46.0f, 26.0f)
-                .color(enabled ? accent() : core::Color{0.26f, 0.30f, 0.36f, 1.0f})
+                .color(enabled ? accent() : surfaceActive())
                 .radius(13.0f)
                 .transition(pageTransition())
                 .build();
@@ -639,7 +739,7 @@ void settingRow(core::dsl::Ui& ui, const std::string& id, const std::string& tit
                 .x(enabled ? toggleX + 22.0f : toggleX + 4.0f)
                 .y(26.0f)
                 .size(18.0f, 18.0f)
-                .color({0.96f, 0.98f, 1.0f, 1.0f})
+                .color(optionNight ? core::Color{0.96f, 0.98f, 1.0f, 1.0f} : core::Color{1.0f, 1.0f, 1.0f, 1.0f})
                 .radius(9.0f)
                 .transition(pageTransition())
                 .build();
@@ -651,13 +751,14 @@ void composeSettingsPage(core::dsl::Ui& ui, float width, float height) {
     const float rowWidth = std::max(0.0f, std::min(width, 720.0f));
 
     ui.column("settings.list")
-        .size(rowWidth, std::min(height, 346.0f))
+        .size(rowWidth, std::min(height, 430.0f))
         .gap(14.0f)
         .content([&] {
             settingRow(ui, "setting.dense", "Dense layout", "Use tighter spacing for gallery pages.", optionDense, rowWidth, [] { optionDense = !optionDense; });
             settingRow(ui, "setting.glass", "Glass surfaces", "Show transparent panel examples in controls.", optionGlass, rowWidth, [] { optionGlass = !optionGlass; });
             settingRow(ui, "setting.motion", "Animated transitions", "Keep page and property transitions enabled.", optionMotion, rowWidth, [] { optionMotion = !optionMotion; });
             settingRow(ui, "setting.limit60", "Limit to 60 FPS", "Cap animation rendering below the display refresh rate.", optionLimit60, rowWidth, [] { optionLimit60 = !optionLimit60; });
+            settingRow(ui, "setting.night", "Night mode", "Switch gallery between light and dark theme tokens.", optionNight, rowWidth, [] { optionNight = !optionNight; });
         });
 }
 
@@ -689,9 +790,9 @@ void composeBingPage(core::dsl::Ui& ui, float width, float height) {
                 .content([&] {
                     ui.rect("bing.api.bg")
                         .size(contentWidth, apiHeight)
-                        .color({0.09f, 0.11f, 0.15f, 1.0f})
+                        .color(surface())
                         .radius(18.0f)
-                        .border(1.0f, {0.22f, 0.28f, 0.36f, 1.0f})
+                        .border(1.0f, borderColor())
                         .build();
 
                     ui.text("bing.api.title")
@@ -739,9 +840,9 @@ void composeAboutPage(core::dsl::Ui& ui, float width, float height) {
                 .content([&] {
                     ui.rect("about.logo.frame")
                         .size(logoSize, logoSize)
-                        .color({0.10f, 0.12f, 0.16f, 1.0f})
+                        .color(surface())
                         .radius(34.0f)
-                        .shadow(20.0f, 0.0f, 10.0f, {0.0f, 0.0f, 0.0f, 0.24f})
+                        .shadow(20.0f, 0.0f, 10.0f, shadowColor(0.24f, 0.12f))
                         .build();
 
                     ui.image("about.logo.image")
@@ -765,8 +866,10 @@ void composeAboutPage(core::dsl::Ui& ui, float width, float height) {
                         .iconSize(24.0f)
                         .fontSize(22.0f)
                         .text("GitHub")
-                        .colors(accent(), {0.34f, 0.66f, 0.98f, 1.0f}, {0.12f, 0.32f, 0.56f, 1.0f})
+                        .colors(accent(), buttonHover(accent()), buttonPressed(accent()))
                         .radius(8.0f)
+                        .border(1.0f, withAlpha(accent(), 0.58f))
+                        .shadow(14.0f, 0.0f, 5.0f, shadowColor(0.22f, 0.10f))
                         .transition(pageTransition())
                         .onClick([] {
                             core::platform::openUrl("https://github.com/sudoevolve/EUI-NEO");
@@ -779,11 +882,12 @@ void composeAboutPage(core::dsl::Ui& ui, float width, float height) {
                         .iconSize(22.0f)
                         .fontSize(22.0f)
                         .text("Join Group")
-                        .colors({0.18f, 0.20f, 0.25f, 1.0f}, {0.23f, 0.26f, 0.32f, 1.0f}, {0.10f, 0.12f, 0.16f, 1.0f})
+                        .colors(surfaceSoft(), buttonHover(surfaceSoft()), buttonPressed(surfaceSoft()))
                         .textColor(textPrimary())
                         .iconColor(textPrimary())
                         .radius(8.0f)
-                        .border(1.0f, {0.36f, 0.40f, 0.48f, 1.0f})
+                        .border(1.0f, borderColor())
+                        .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
                         .transition(pageTransition())
                         .onClick([] {
                             core::platform::openUrl("https://qm.qq.com/q/kaPB4paOpa");
@@ -816,7 +920,7 @@ void composeAboutPage(core::dsl::Ui& ui, float width, float height) {
                         .customFont("YouSheBiaoTiHei")
                         .fontSize(22.0f)
                         .lineHeight(26.0f)
-                        .color({0.66f, 0.70f, 0.78f, 1.0f})
+                        .color(textMuted())
                         .horizontalAlign(core::HorizontalAlign::Center)
                         .build();
 
@@ -826,7 +930,7 @@ void composeAboutPage(core::dsl::Ui& ui, float width, float height) {
                         .customFont("YouSheBiaoTiHei")
                         .fontSize(20.0f)
                         .lineHeight(25.0f)
-                        .color({0.66f, 0.70f, 0.78f, 1.0f})
+                        .color(textMuted())
                         .horizontalAlign(core::HorizontalAlign::Center)
                         .build();
 
@@ -872,8 +976,8 @@ void composeContent(core::dsl::Ui& ui, float width, float height) {
                 .margin(36.0f)
                 .color(surface())
                 .radius(26.0f)
-                .border(1.0f, {0.22f, 0.27f, 0.34f, 1.0f})
-                .shadow(30.0f, 0.0f, 16.0f, {0.0f, 0.0f, 0.0f, 0.28f})
+                .border(1.0f, borderColor())
+                .shadow(30.0f, 0.0f, 16.0f, shadowColor(0.28f, 0.14f))
                 .transition(pageTransition())
                 .build();
 
@@ -920,7 +1024,7 @@ const DslAppConfig& dslAppConfig() {
         "gallery",
         {0.07f, 0.08f, 0.10f, 1.0f},
         1440,
-        900,
+        1100,
         false,
         galleryFrameRateLimit
     };

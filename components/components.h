@@ -3,4 +3,5 @@
 #include "components/button.h"
 #include "components/image.h"
 #include "components/panel.h"
+#include "components/theme.h"
 #include "components/text.h"
