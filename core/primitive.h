@@ -100,6 +100,7 @@ public:
             "uniform float uOpacity;\n"
             "uniform float uShadowBlur;\n"
             "uniform float uBlurAmount;\n"
+            "uniform vec4 uBackdropRect;\n"
             "uniform int uUseGradient;\n"
             "uniform int uGradientDirection;\n"
             "uniform int uShadowPass;\n"
@@ -112,7 +113,7 @@ public:
             "    return length(max(cornerVector, 0.0)) + min(max(cornerVector.x, cornerVector.y), 0.0) - radius;\n"
             "}\n"
             "vec3 backdropBlur(vec2 uv) {\n"
-            "    vec2 pixelStep = 1.0 / max(uWindowSize, vec2(1.0));\n"
+            "    vec2 pixelStep = 1.0 / max(uBackdropRect.zw, vec2(1.0));\n"
             "    float blurRadiusPx = uBlurAmount;\n"
             "    vec3 blurred = texture(uBackdrop, uv).rgb;\n"
             "    float repeats = mix(8.0, 24.0, clamp(blurRadiusPx / 36.0, 0.0, 1.0));\n"
@@ -150,7 +151,8 @@ public:
             "        clamp((vLocalPos.y - uRect.y) / max(uRect.w, 1.0), 0.0, 1.0);\n"
             "    vec4 fill = uUseGradient == 1 ? mix(uGradientStart, uGradientEnd, gradientAmount) : uFillColor;\n"
             "    if (uBlurAmount > 0.0) {\n"
-            "        vec2 backdropUv = gl_FragCoord.xy / max(uWindowSize, vec2(1.0));\n"
+            "        vec2 backdropUv = (gl_FragCoord.xy - uBackdropRect.xy) / max(uBackdropRect.zw, vec2(1.0));\n"
+            "        backdropUv = clamp(backdropUv, vec2(0.0), vec2(1.0));\n"
             "        vec3 blurred = backdropBlur(backdropUv);\n"
             "        fill = vec4(mix(blurred, fill.rgb, fill.a), 1.0);\n"
             "    }\n"
@@ -179,6 +181,7 @@ public:
         opacityLocation_ = resources.opacityLocation;
         shadowBlurLocation_ = resources.shadowBlurLocation;
         blurAmountLocation_ = resources.blurAmountLocation;
+        backdropRectLocation_ = resources.backdropRectLocation;
         useGradientLocation_ = resources.useGradientLocation;
         gradientDirectionLocation_ = resources.gradientDirectionLocation;
         shadowPassLocation_ = resources.shadowPassLocation;
@@ -205,6 +208,7 @@ public:
         opacityLocation_ = -1;
         shadowBlurLocation_ = -1;
         blurAmountLocation_ = -1;
+        backdropRectLocation_ = -1;
         useGradientLocation_ = -1;
         gradientDirectionLocation_ = -1;
         shadowPassLocation_ = -1;
@@ -245,7 +249,7 @@ public:
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
         if (blur_ > 0.0f) {
-            captureBackdrop(windowWidth, windowHeight);
+            captureBackdrop(windowWidth, windowHeight, bounds_, blur_);
         }
 
         if (shadow_.enabled) {
@@ -276,11 +280,14 @@ private:
         GLint opacityLocation = -1;
         GLint shadowBlurLocation = -1;
         GLint blurAmountLocation = -1;
+        GLint backdropRectLocation = -1;
         GLint useGradientLocation = -1;
         GLint gradientDirectionLocation = -1;
         GLint shadowPassLocation = -1;
         GLint backdropLocation = -1;
         GLuint backdropTexture = 0;
+        int backdropX = 0;
+        int backdropY = 0;
         int backdropWidth = 0;
         int backdropHeight = 0;
         int references = 0;
@@ -339,6 +346,7 @@ private:
         resources.opacityLocation = glGetUniformLocation(resources.shaderProgram, "uOpacity");
         resources.shadowBlurLocation = glGetUniformLocation(resources.shaderProgram, "uShadowBlur");
         resources.blurAmountLocation = glGetUniformLocation(resources.shaderProgram, "uBlurAmount");
+        resources.backdropRectLocation = glGetUniformLocation(resources.shaderProgram, "uBackdropRect");
         resources.useGradientLocation = glGetUniformLocation(resources.shaderProgram, "uUseGradient");
         resources.gradientDirectionLocation = glGetUniformLocation(resources.shaderProgram, "uGradientDirection");
         resources.shadowPassLocation = glGetUniformLocation(resources.shaderProgram, "uShadowPass");
@@ -382,6 +390,8 @@ private:
             glDeleteTextures(1, &resources.backdropTexture);
             resources.backdropTexture = 0;
         }
+        resources.backdropX = 0;
+        resources.backdropY = 0;
         resources.backdropWidth = 0;
         resources.backdropHeight = 0;
         resources.windowSizeLocation = -1;
@@ -396,6 +406,7 @@ private:
         resources.opacityLocation = -1;
         resources.shadowBlurLocation = -1;
         resources.blurAmountLocation = -1;
+        resources.backdropRectLocation = -1;
         resources.useGradientLocation = -1;
         resources.gradientDirectionLocation = -1;
         resources.shadowPassLocation = -1;
@@ -426,11 +437,23 @@ private:
         glBindTexture(GL_TEXTURE_2D, 0);
     }
 
-    static void captureBackdrop(int width, int height) {
-        ensureBackdropTexture(width, height);
+    static void captureBackdrop(int windowWidth, int windowHeight, const Rect& bounds, float blur) {
+        const int safeWindowWidth = std::max(1, windowWidth);
+        const int safeWindowHeight = std::max(1, windowHeight);
+        const int left = std::clamp(static_cast<int>(std::floor(bounds.x - blur)), 0, safeWindowWidth - 1);
+        const int top = std::clamp(static_cast<int>(std::floor(bounds.y - blur)), 0, safeWindowHeight - 1);
+        const int right = std::clamp(static_cast<int>(std::ceil(bounds.x + bounds.width + blur)), left + 1, safeWindowWidth);
+        const int bottom = std::clamp(static_cast<int>(std::ceil(bounds.y + bounds.height + blur)), top + 1, safeWindowHeight);
+        const int captureWidth = right - left;
+        const int captureHeight = bottom - top;
+        const int sourceY = safeWindowHeight - bottom;
+
+        ensureBackdropTexture(captureWidth, captureHeight);
         SharedResources& resources = sharedResources();
+        resources.backdropX = left;
+        resources.backdropY = sourceY;
         glBindTexture(GL_TEXTURE_2D, resources.backdropTexture);
-        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, std::max(1, width), std::max(1, height));
+        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, left, sourceY, captureWidth, captureHeight);
         glBindTexture(GL_TEXTURE_2D, 0);
     }
 
@@ -547,6 +570,11 @@ private:
         glUniform1f(opacityLocation_, opacity_);
         glUniform1f(shadowBlurLocation_, blur);
         glUniform1f(blurAmountLocation_, shadowPass ? 0.0f : blur_);
+        glUniform4f(backdropRectLocation_,
+                    static_cast<float>(sharedResources().backdropX),
+                    static_cast<float>(sharedResources().backdropY),
+                    static_cast<float>(std::max(1, sharedResources().backdropWidth)),
+                    static_cast<float>(std::max(1, sharedResources().backdropHeight)));
         glUniform1i(useGradientLocation_, gradient_.enabled && !shadowPass ? 1 : 0);
         glUniform1i(gradientDirectionLocation_, static_cast<int>(gradient_.direction));
         glUniform1i(shadowPassLocation_, shadowPass ? 1 : 0);
@@ -591,6 +619,7 @@ private:
     GLint opacityLocation_ = -1;
     GLint shadowBlurLocation_ = -1;
     GLint blurAmountLocation_ = -1;
+    GLint backdropRectLocation_ = -1;
     GLint useGradientLocation_ = -1;
     GLint gradientDirectionLocation_ = -1;
     GLint shadowPassLocation_ = -1;

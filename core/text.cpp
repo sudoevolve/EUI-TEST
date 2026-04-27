@@ -44,6 +44,7 @@ struct FontFace {
 
 struct FontInfoHolder {
     std::vector<FontFace> faces;
+    std::vector<std::string> lazyFallbackPaths;
 };
 
 struct SharedTextAtlas {
@@ -396,17 +397,12 @@ std::shared_ptr<FontInfoHolder> loadSharedFontStack(const std::string& fontPath,
 
     holder->faces.push_back(std::move(primary));
 
-    const std::string fallbackPaths[] = {
+    const std::string assetFallbackPaths[] = {
         resolveProjectAssetPath("Font Awesome 7 Free-Solid-900.otf"),
-        resolveProjectAssetPath("YouSheBiaoTiHei-2.ttf"),
-#ifdef _WIN32
-        std::string("C:/Windows/Fonts/msyh.ttc")
-#else
-        std::string("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
-#endif
+        resolveProjectAssetPath("YouSheBiaoTiHei-2.ttf")
     };
 
-    for (const std::string& fallbackPath : fallbackPaths) {
+    for (const std::string& fallbackPath : assetFallbackPaths) {
         if (fallbackPath.empty() || fallbackPath == fontPath) {
             continue;
         }
@@ -416,6 +412,12 @@ std::shared_ptr<FontInfoHolder> loadSharedFontStack(const std::string& fontPath,
             holder->faces.push_back(std::move(fallback));
         }
     }
+
+#ifdef _WIN32
+    holder->lazyFallbackPaths.push_back("C:/Windows/Fonts/msyh.ttc");
+#else
+    holder->lazyFallbackPaths.push_back("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
+#endif
 
     cache[cacheKey] = holder;
     return holder;
@@ -701,6 +703,32 @@ bool TextPrimitive::ensureGlyph(unsigned int codepoint) {
         }
 
         if (stbtt_FindGlyphIndex(&face->info, static_cast<int>(codepoint)) == 0) {
+            for (const std::string& fallbackPath : holder->lazyFallbackPaths) {
+                if (fallbackPath.empty()) {
+                    continue;
+                }
+                const bool alreadyLoaded = std::any_of(holder->faces.begin(), holder->faces.end(),
+                                                       [&](const FontFace& loadedFace) {
+                                                           return loadedFace.path == fallbackPath;
+                                                       });
+                if (alreadyLoaded) {
+                    continue;
+                }
+
+                FontFace fallback;
+                if (!loadFontFace(fallbackPath, style_.fontSize, !isFontAwesomePath(fallbackPath), fallback)) {
+                    continue;
+                }
+
+                if (stbtt_FindGlyphIndex(&fallback.info, static_cast<int>(codepoint)) != 0) {
+                    holder->faces.push_back(std::move(fallback));
+                    face = &holder->faces.back();
+                    break;
+                }
+            }
+        }
+
+        if (stbtt_FindGlyphIndex(&face->info, static_cast<int>(codepoint)) == 0) {
             Glyph missingGlyph;
             missingGlyph.advance = style_.fontSize * 0.5f;
             cacheGlyph(codepoint, missingGlyph);
@@ -934,12 +962,12 @@ std::string TextPrimitive::resolveFontPath(const std::string& fontFamily, int fo
         return "C:/Windows/Fonts/simhei.ttf";
     }
     if (fontWeight >= 600) {
-        return "C:/Windows/Fonts/segoeuib.ttf";
+        return resolveProjectAssetPath("YouSheBiaoTiHei-2.ttf");
     }
-    return "C:/Windows/Fonts/segoeui.ttf";
+    return resolveProjectAssetPath("YouSheBiaoTiHei-2.ttf");
 #else
     (void)fontWeight;
-    return "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+    return resolveProjectAssetPath("YouSheBiaoTiHei-2.ttf");
 #endif
 }
 
