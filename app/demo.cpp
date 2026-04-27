@@ -20,7 +20,7 @@ void compose(core::dsl::Ui& ui, const core::dsl::Screen& screen) {
         .size(screen.width, screen.height)
         .align(core::Align::CENTER, core::Align::CENTER)
         .content([&] {
-            ui.rect("card")
+            components::panel(ui, "card")
                 .size(360.0f, 260.0f)
                 .radius(18.0f)
                 .gradient({0.10f, 0.12f, 0.16f, 1.0f}, {0.05f, 0.07f, 0.10f, 1.0f})
@@ -34,7 +34,7 @@ void compose(core::dsl::Ui& ui, const core::dsl::Screen& screen) {
                 .justifyContent(core::Align::CENTER)
                 .alignItems(core::Align::CENTER)
                 .content([&] {
-                    ui.text("title")
+                    components::text(ui, "title")
                         .size(300.0f, 38.0f)
                         .text("Light GUI")
                         .fontSize(30.0f)
@@ -43,7 +43,7 @@ void compose(core::dsl::Ui& ui, const core::dsl::Screen& screen) {
                         .horizontalAlign(core::HorizontalAlign::Center)
                         .build();
 
-                    ui.text("subtitle")
+                    components::text(ui, "subtitle")
                         .size(300.0f, 30.0f)
                         .margin(0.0f, 0.0f, 0.0f, 16.0f)
                         .text("Text Button Component")

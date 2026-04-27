@@ -57,8 +57,9 @@ bool update(GLFWwindow* window, float deltaSeconds, int windowWidth, int windowH
 
     composeFrame();
     const bool changed = detail::dslRuntime().update(window, deltaSeconds, pointerScale, dpiScale);
-    if (changed) {
+    if (detail::dslRuntime().needsCompose()) {
         composeFrame();
+        detail::dslRuntime().markFullRedraw();
     }
 
     return changed;
@@ -72,7 +73,7 @@ void render(int windowWidth, int windowHeight, float dpiScale) {
     const core::Color clearColor = dslAppConfig().clearColor;
     glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
     glClear(GL_COLOR_BUFFER_BIT);
-    detail::dslRuntime().render(windowWidth, windowHeight, dpiScale);
+    detail::dslRuntime().render(windowWidth, windowHeight, dpiScale, clearColor);
 }
 
 void shutdown() {

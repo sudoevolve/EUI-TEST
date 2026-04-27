@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/layout.h"
+#include "core/animation.h"
 #include "core/primitive.h"
 #include "core/text.h"
 
@@ -14,6 +15,10 @@
 #include <vector>
 
 namespace core::dsl {
+
+using AnimProperty = core::AnimProperty;
+using Ease = core::Ease;
+using Transition = core::Transition;
 
 inline std::string utf8(unsigned int codepoint) {
     std::string result;
@@ -90,6 +95,7 @@ struct Element {
     std::function<void()> onClick;
     std::string visualStateSourceId;
     float pressedScale = 1.0f;
+    Transition transition;
 
     std::vector<std::unique_ptr<Element>> children;
 
@@ -229,6 +235,22 @@ public:
     }
 
     Derived& visualStateFrom(const std::string& id, float pressedScaleValue = 0.965f);
+
+    Derived& transition(const Transition& value) {
+        element_->transition = value;
+        return self();
+    }
+
+    Derived& transition(float durationSeconds, Ease ease = Ease::OutCubic) {
+        element_->transition = Transition::make(durationSeconds, ease);
+        return self();
+    }
+
+    Derived& animate(AnimProperty property) {
+        element_->transition.enabled = true;
+        element_->transition.properties = property;
+        return self();
+    }
 
     template <typename Fn>
     Derived& content(Fn&& compose);
@@ -433,6 +455,11 @@ public:
 
     TextBuilder& color(const Color& value) {
         element_->textColor = value;
+        return *this;
+    }
+
+    TextBuilder& opacity(float value) {
+        element_->opacity = std::clamp(value, 0.0f, 1.0f);
         return *this;
     }
 
