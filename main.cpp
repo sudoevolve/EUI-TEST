@@ -225,6 +225,13 @@ int main() {
         int framebufferWidth = 0;
         int framebufferHeight = 0;
         glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+        if (framebufferWidth <= 0 || framebufferHeight <= 0) {
+            windowState.needsRender = true;
+            glfwWaitEvents();
+            windowState.nextFrameTime = glfwGetTime();
+            lastFrameTime = windowState.nextFrameTime;
+            continue;
+        }
         const float dpiScale = getDpiScale(window);
         const float pointerScale = getPointerScale(window);
 

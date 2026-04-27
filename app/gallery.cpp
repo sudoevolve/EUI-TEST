@@ -1,6 +1,8 @@
 #include "app/dsl_app.h"
 
 #include "components/components.h"
+#include "core/network.h"
+#include "core/platform.h"
 
 #include <algorithm>
 #include <functional>
@@ -83,6 +85,9 @@ core::Color accentForPage(int page) {
     if (page == 4) {
         return {0.86f, 0.64f, 0.34f, 1.0f};
     }
+    if (page == 5) {
+        return {0.62f, 0.50f, 0.88f, 1.0f};
+    }
     return {0.26f, 0.58f, 0.94f, 1.0f};
 }
 
@@ -101,6 +106,9 @@ const char* pageTitle() {
         return "Settings";
     }
     if (selectedPage == 4) {
+        return "Bing";
+    }
+    if (selectedPage == 5) {
         return "About";
     }
     return "Controls";
@@ -117,7 +125,10 @@ const char* pageSubtitle() {
         return "Interactive settings built with the same rect and text primitives.";
     }
     if (selectedPage == 4) {
-        return "A small map of the current EUI DSL runtime and component model.";
+        return "Network images, SVG rasterization and API text requests.";
+    }
+    if (selectedPage == 5) {
+        return "A lightweight and elegant C++ GUI framework.";
     }
     return "Basic controls, states and visual properties in one surface.";
 }
@@ -165,11 +176,13 @@ void composeSidebar(core::dsl::Ui& ui, float height) {
 
             ui.rect("sidebar.accent")
                 .x(0.0f)
-                .y(kNavTop + selectedPage * (kNavHeight + kNavGap))
+                .y(kNavTop)
                 .size(4.0f, 50.0f)
                 .color(accent())
                 .radius(2.0f)
+                .translateY(selectedPage * (kNavHeight + kNavGap))
                 .transition(pageTransition())
+                .animate(core::AnimProperty::Transform | core::AnimProperty::Color)
                 .build();
 
             ui.column("sidebar.content")
@@ -202,7 +215,8 @@ void composeSidebar(core::dsl::Ui& ui, float height) {
                     navItem(ui, "nav.text", "Text", 0xF031, 1);
                     navItem(ui, "nav.animation", "Animation", 0xF2F1, 2);
                     navItem(ui, "nav.settings", "Settings", 0xF013, 3);
-                    navItem(ui, "nav.about", "About", 0xF05A, 4);
+                    navItem(ui, "nav.bing", "Bing", 0xF1C5, 4);
+                    navItem(ui, "nav.about", "About", 0xF05A, 5);
                 });
         });
 }
@@ -245,6 +259,158 @@ void propertyCard(core::dsl::Ui& ui, const std::string& id, const std::string& t
             caption(ui, id + ".note", note, width, 90.0f);
         })
         .build();
+}
+
+void imageCard(core::dsl::Ui& ui, const std::string& id, const std::string& title, const std::string& source,
+               float width, float height = 122.0f, float imageHeight = 72.0f) {
+    const float labelY = std::max(14.0f, height - 30.0f);
+    ui.stack(id)
+        .size(width, height)
+        .content([&] {
+            ui.rect(id + ".bg")
+                .size(width, height)
+                .color({0.09f, 0.11f, 0.15f, 1.0f})
+                .radius(18.0f)
+                .border(1.0f, {0.22f, 0.28f, 0.36f, 1.0f})
+                .build();
+
+            ui.image(id + ".image")
+                .x(14.0f)
+                .y(14.0f)
+                .size(std::max(0.0f, width - 28.0f), imageHeight)
+                .source(source)
+                .radius(12.0f)
+                .transition(pageTransition())
+                .build();
+
+            ui.text(id + ".label")
+                .x(14.0f)
+                .y(labelY)
+                .size(std::max(0.0f, width - 28.0f), 22.0f)
+                .text(title)
+                .fontSize(15.0f)
+                .lineHeight(20.0f)
+                .color(textMuted())
+                .horizontalAlign(core::HorizontalAlign::Center)
+                .build();
+        })
+        .build();
+}
+
+void bingImageCard(core::dsl::Ui& ui, const std::string& id, float width,
+                   float height = 122.0f, float imageHeight = 72.0f) {
+    const float labelY = std::max(14.0f, height - 30.0f);
+    ui.stack(id)
+        .size(width, height)
+        .content([&] {
+            ui.rect(id + ".bg")
+                .size(width, height)
+                .color({0.09f, 0.11f, 0.15f, 1.0f})
+                .radius(18.0f)
+                .border(1.0f, {0.22f, 0.28f, 0.36f, 1.0f})
+                .build();
+
+            ui.image(id + ".image")
+                .x(14.0f)
+                .y(14.0f)
+                .size(std::max(0.0f, width - 28.0f), imageHeight)
+                .bingDaily(0, "zh-CN")
+                .radius(12.0f)
+                .transition(pageTransition())
+                .build();
+
+            ui.text(id + ".label")
+                .x(14.0f)
+                .y(labelY)
+                .size(std::max(0.0f, width - 28.0f), 22.0f)
+                .text("Bing daily")
+                .fontSize(15.0f)
+                .lineHeight(20.0f)
+                .color(textMuted())
+                .horizontalAlign(core::HorizontalAlign::Center)
+                .build();
+        })
+        .build();
+}
+
+void mediaThumb(core::dsl::Ui& ui, const std::string& id, const std::string& title, const std::string& source, float width, bool bing = false) {
+    ui.stack(id)
+        .size(width, 88.0f)
+        .content([&] {
+            ui.rect(id + ".bg")
+                .size(width, 88.0f)
+                .color({0.09f, 0.11f, 0.15f, 1.0f})
+                .radius(12.0f)
+                .border(1.0f, {0.22f, 0.28f, 0.36f, 1.0f})
+                .build();
+
+            auto image = ui.image(id + ".image")
+                .x(8.0f)
+                .y(8.0f)
+                .size(std::max(0.0f, width - 16.0f), 50.0f)
+                .radius(8.0f)
+                .cover();
+            if (bing) {
+                image.bingDaily(0, "zh-CN");
+            } else {
+                image.source(source);
+            }
+            image.build();
+
+            ui.text(id + ".label")
+                .x(8.0f)
+                .y(62.0f)
+                .size(std::max(0.0f, width - 16.0f), 18.0f)
+                .text(title)
+                .fontSize(13.0f)
+                .lineHeight(16.0f)
+                .color(textMuted())
+                .horizontalAlign(core::HorizontalAlign::Center)
+                .build();
+        })
+        .build();
+}
+
+std::string jsonStringValue(const std::string& json, const std::string& key) {
+    const std::string token = "\"" + key + "\":\"";
+    const size_t begin = json.find(token);
+    if (begin == std::string::npos) {
+        return {};
+    }
+    const size_t valueBegin = begin + token.size();
+    std::string value;
+    bool escaping = false;
+    for (size_t i = valueBegin; i < json.size(); ++i) {
+        const char ch = json[i];
+        if (escaping) {
+            value.push_back(ch == '/' ? '/' : ch);
+            escaping = false;
+            continue;
+        }
+        if (ch == '\\') {
+            escaping = true;
+            continue;
+        }
+        if (ch == '"') {
+            break;
+        }
+        value.push_back(ch);
+    }
+    return value;
+}
+
+std::string bingApiText() {
+    const std::string key = "gallery.bing.text";
+    core::network::requestText(key, "https://www.bing.com/HPImageArchive.aspx?format=js&n=1&idx=0&mkt=zh-CN");
+    const core::network::TextResult result = core::network::textResult(key);
+    if (!result.ready) {
+        return "Loading Bing API text...";
+    }
+    if (!result.ok) {
+        return "Network text request failed.";
+    }
+    const std::string copyright = jsonStringValue(result.body, "copyright");
+    return copyright.empty() ? "Bing API returned text data." : copyright;
 }
 
 void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
@@ -299,6 +465,7 @@ void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
             propertyCard(ui, "prop.blur", "Blur", "glass card", {0.78f, 0.92f, 1.0f, 0.22f}, "blur", cardWidth);
             propertyCard(ui, "prop.rotate", "Rotate", "transform", {0.48f, 0.64f, 0.36f, 1.0f}, "rotate", cardWidth);
         });
+
 }
 
 void textSample(core::dsl::Ui& ui, const std::string& id, const std::string& text, float size, float height, float width, const core::Color& color) {
@@ -417,6 +584,8 @@ void composeAnimationPage(core::dsl::Ui& ui, float width, float height) {
                 .opacity(animationFaded ? 0.36f : 1.0f)
                 .shadow(26.0f, 0.0f, 12.0f, {0.0f, 0.0f, 0.0f, 0.32f})
                 .transition(motionTransition())
+                .animate(core::AnimProperty::Frame | core::AnimProperty::Color | core::AnimProperty::Opacity |
+                         core::AnimProperty::Radius | core::AnimProperty::Shadow | core::AnimProperty::Transform)
                 .build();
         });
 }
@@ -492,34 +661,177 @@ void composeSettingsPage(core::dsl::Ui& ui, float width, float height) {
         });
 }
 
-void composeAboutPage(core::dsl::Ui& ui, float width, float height) {
-    const float leadWidth = std::max(240.0f, std::min(width, 760.0f));
+void composeBingPage(core::dsl::Ui& ui, float width, float height) {
+    const float contentWidth = std::max(260.0f, std::min(width, 820.0f));
     const float cardGap = 18.0f;
-    const float cardWidth = std::max(90.0f, std::min(204.0f, (width - cardGap * 2.0f) / 3.0f));
+    const float cardWidth = std::max(90.0f, std::min(246.0f, (contentWidth - cardGap * 2.0f) / 3.0f));
     const float rowWidth = cardWidth * 3.0f + cardGap * 2.0f;
+    const float mediaHeight = 182.0f;
+    const float mediaImageHeight = 140.0f;
+    const float apiHeight = std::clamp(height - 250.0f, 72.0f, 112.0f);
 
-    ui.column("about.body")
-        .size(width, std::min(height, 340.0f))
+    ui.column("bing.body")
+        .size(width, height)
+        .alignItems(core::Align::CENTER)
         .gap(18.0f)
         .content([&] {
-            ui.text("about.lead")
-                .size(leadWidth, 70.0f)
-                .text("This gallery is built from Row, Column, Stack, Rect and Text. Components are thin DSL helpers, while Runtime owns layout, interaction and animation.")
-                .fontSize(22.0f)
-                .lineHeight(32.0f)
-                .maxWidth(leadWidth)
-                .wrap(true)
-                .color(textPrimary())
-                .build();
-
-            ui.row("about.cards")
-                .size(rowWidth, 150.0f)
+            ui.row("bing.media")
+                .size(rowWidth, mediaHeight)
                 .gap(cardGap)
                 .content([&] {
-                    propertyCard(ui, "about.dsl", "DSL", "declarative UI", {0.22f, 0.48f, 0.82f, 1.0f}, "border", cardWidth);
-                    propertyCard(ui, "about.runtime", "Runtime", "layout + render", {0.54f, 0.38f, 0.74f, 1.0f}, "shadow", cardWidth);
-                    propertyCard(ui, "about.anim", "Animation", "target values", {0.48f, 0.68f, 0.36f, 1.0f}, "rotate", cardWidth);
+                    imageCard(ui, "bing.media.png", "Local PNG", "assets/icon.png", cardWidth, mediaHeight, mediaImageHeight);
+                    imageCard(ui, "bing.media.svg", "Local SVG", "assets/icon.svg", cardWidth, mediaHeight, mediaImageHeight);
+                    bingImageCard(ui, "bing.media.daily", cardWidth, mediaHeight, mediaImageHeight);
                 });
+
+            ui.stack("bing.api")
+                .size(contentWidth, apiHeight)
+                .content([&] {
+                    ui.rect("bing.api.bg")
+                        .size(contentWidth, apiHeight)
+                        .color({0.09f, 0.11f, 0.15f, 1.0f})
+                        .radius(18.0f)
+                        .border(1.0f, {0.22f, 0.28f, 0.36f, 1.0f})
+                        .build();
+
+                    ui.text("bing.api.title")
+                        .x(22.0f)
+                        .y(12.0f)
+                        .size(std::max(0.0f, contentWidth - 44.0f), 28.0f)
+                        .text("Bing API text")
+                        .fontSize(20.0f)
+                        .lineHeight(26.0f)
+                        .color(textPrimary())
+                        .build();
+
+                    ui.text("bing.api.text")
+                        .x(22.0f)
+                        .y(42.0f)
+                        .size(std::max(0.0f, contentWidth - 44.0f), std::max(0.0f, apiHeight - 52.0f))
+                        .text(bingApiText())
+                        .fontSize(16.0f)
+                        .lineHeight(22.0f)
+                        .maxWidth(std::max(0.0f, contentWidth - 44.0f))
+                        .wrap(true)
+                        .color(textMuted())
+                        .build();
+                })
+                .build();
+        });
+}
+
+void composeAboutPage(core::dsl::Ui& ui, float width, float height) {
+    const float contentWidth = std::max(240.0f, std::min(width, 900.0f));
+    const float logoSize = 130.0f;
+    const float logoImageSize = 130.0f;
+    const float buttonGap = 36.0f;
+    const float buttonWidth = std::max(170.0f, std::min(330.0f, (contentWidth - buttonGap) * 0.5f));
+    const float buttonRowWidth = buttonWidth * 2.0f + buttonGap;
+    const float licenseSpacer = 10.0f;
+
+    ui.column("about.body")
+        .size(width, height)
+        .alignItems(core::Align::CENTER)
+        .gap(8.0f)
+        .content([&] {
+            ui.stack("about.logo")
+                .size(logoSize, logoSize)
+                .content([&] {
+                    ui.rect("about.logo.frame")
+                        .size(logoSize, logoSize)
+                        .color({0.10f, 0.12f, 0.16f, 1.0f})
+                        .radius(34.0f)
+                        .shadow(20.0f, 0.0f, 10.0f, {0.0f, 0.0f, 0.0f, 0.24f})
+                        .build();
+
+                    ui.image("about.logo.image")
+                        .x((logoSize - logoImageSize) * 0.5f)
+                        .y((logoSize - logoImageSize) * 0.5f)
+                        .size(logoImageSize, logoImageSize)
+                        .source("assets/icon.png")
+                        .radius(34.0f)
+                        .cover()
+                        .build();
+                })
+                .build();
+
+            ui.row("about.actions")
+                .size(buttonRowWidth, 58.0f)
+                .gap(buttonGap)
+                .content([&] {
+                    components::button(ui, "about.github")
+                        .size(buttonWidth, 58.0f)
+                        .icon(0xF0C1)
+                        .iconSize(24.0f)
+                        .fontSize(22.0f)
+                        .text("GitHub")
+                        .colors(accent(), {0.34f, 0.66f, 0.98f, 1.0f}, {0.12f, 0.32f, 0.56f, 1.0f})
+                        .radius(8.0f)
+                        .transition(pageTransition())
+                        .onClick([] {
+                            core::platform::openUrl("https://github.com/sudoevolve/EUI-NEO");
+                        })
+                        .build();
+
+                    components::button(ui, "about.group")
+                        .size(buttonWidth, 58.0f)
+                        .icon(0xF0C0)
+                        .iconSize(22.0f)
+                        .fontSize(22.0f)
+                        .text("Join Group")
+                        .colors({0.18f, 0.20f, 0.25f, 1.0f}, {0.23f, 0.26f, 0.32f, 1.0f}, {0.10f, 0.12f, 0.16f, 1.0f})
+                        .textColor(textPrimary())
+                        .iconColor(textPrimary())
+                        .radius(8.0f)
+                        .border(1.0f, {0.36f, 0.40f, 0.48f, 1.0f})
+                        .transition(pageTransition())
+                        .onClick([] {
+                            core::platform::openUrl("https://qm.qq.com/q/kaPB4paOpa");
+                        })
+                        .build();
+                });
+
+            ui.stack("about.spacer")
+                .size(1.0f, licenseSpacer)
+                .build();
+
+            ui.column("about.license")
+                .size(contentWidth, 116.0f)
+                .alignItems(core::Align::CENTER)
+                .gap(6.0f)
+                .content([&] {
+                    ui.text("about.license.title")
+                        .size(contentWidth, 38.0f)
+                        .text("License")
+                        .customFont("YouSheBiaoTiHei")
+                        .fontSize(32.0f)
+                        .lineHeight(36.0f)
+                        .color(textPrimary())
+                        .horizontalAlign(core::HorizontalAlign::Center)
+                        .build();
+
+                    ui.text("about.license.copy")
+                        .size(contentWidth, 28.0f)
+                        .text("Copyright @2026 SudoEvolve")
+                        .customFont("YouSheBiaoTiHei")
+                        .fontSize(22.0f)
+                        .lineHeight(26.0f)
+                        .color({0.66f, 0.70f, 0.78f, 1.0f})
+                        .horizontalAlign(core::HorizontalAlign::Center)
+                        .build();
+
+                    ui.text("about.license.type")
+                        .size(contentWidth, 28.0f)
+                        .text("Licensed under apache2.0")
+                        .customFont("YouSheBiaoTiHei")
+                        .fontSize(20.0f)
+                        .lineHeight(25.0f)
+                        .color({0.66f, 0.70f, 0.78f, 1.0f})
+                        .horizontalAlign(core::HorizontalAlign::Center)
+                        .build();
+
+                })
+                .build();
         });
 }
 
@@ -532,6 +844,8 @@ void composePageBody(core::dsl::Ui& ui, float width, float height) {
         composeAnimationPage(ui, width, height);
     } else if (selectedPage == 3) {
         composeSettingsPage(ui, width, height);
+    } else if (selectedPage == 4) {
+        composeBingPage(ui, width, height);
     } else {
         composeAboutPage(ui, width, height);
     }

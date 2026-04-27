@@ -1,10 +1,8 @@
 # DSL 设计与当前实现
 
-当前 UI 推荐写法是声明式 DSL：应用只描述页面结构、样式、交互回调和目标状态，`core::dsl::Runtime` 负责布局、状态缓存、动画推进、脏区渲染和 OpenGL primitive 同步。
+当前推荐写法是声明式 DSL：应用只描述页面结构、样式、交互回调和目标状态，`core::dsl::Runtime` 负责布局、状态缓存、事件、动画、脏区渲染和 OpenGL primitive 同步。
 
 ## 核心元素
-
-`core::dsl` 当前只有 5 种基础元素：
 
 ```cpp
 enum class ElementKind {
@@ -12,17 +10,19 @@ enum class ElementKind {
     Column,
     Stack,
     Rect,
-    Text
+    Text,
+    Image
 };
 ```
 
 - `Row`：横向布局容器。
 - `Column`：纵向布局容器。
 - `Stack`：叠放布局容器。
-- `Rect`：基础视觉图元，支持颜色、渐变、圆角、边框、阴影、透明度、blur、transform、交互状态。
+- `Rect`：基础视觉图元，支持颜色、渐变、圆角、边框、阴影、透明度、blur、transform、hover/pressed 状态。
 - `Text`：文本图元，支持字体、字号、颜色、换行、行高和对齐。
+- `Image`：图片图元，支持本地图片、网络图片、SVG、Bing daily、cover/contain/stretch。
 
-组件不进入 core 枚举。组件层应该只是组合 DSL 图元，例如 `components::button(ui, id)` 内部使用 `Stack + Rect + Row + Text`。
+组件不进入 core 枚举。组件层只是组合 DSL 图元，例如 `components::button(ui, id)` 内部使用 `Stack + Rect + Row + Text`。
 
 ## App 入口
 
@@ -41,36 +41,13 @@ void compose(core::dsl::Ui& ui, const core::dsl::Screen& screen);
 
 `app/dsl_app.h` 已封装：
 
-- `initialize`
-- `update`
-- `isAnimating`
-- `render`
-- `shutdown`
-
-页面示例：
-
-```cpp
-void compose(core::dsl::Ui& ui, const core::dsl::Screen& screen) {
-    ui.stack("root")
-        .size(screen.width, screen.height)
-        .align(core::Align::CENTER, core::Align::CENTER)
-        .content([&] {
-            components::panel(ui, "card")
-                .size(360.0f, 260.0f)
-                .radius(18.0f)
-                .color({0.10f, 0.12f, 0.16f, 1.0f})
-                .build();
-
-            components::button(ui, "primary")
-                .size(240.0f, 70.0f)
-                .text("Click Me")
-                .onClick([] {
-                    // update app state
-                })
-                .build();
-        });
-}
-```
+- initialize
+- update
+- isAnimating
+- render
+- shutdown
+- 按屏幕刷新率主动节流
+- 无动画时等待事件休眠
 
 ## 布局 DSL
 
@@ -103,11 +80,32 @@ ui.stack("root")
 .align(core::Align::CENTER, core::Align::CENTER)
 ```
 
-规则：
+## 通用交互 DSL
 
-- `Row` 主轴是 x，`alignItems` 控制 y。
-- `Column` 主轴是 y，`alignItems` 控制 x。
-- `Stack` 子元素叠放，未指定 x/y 时根据 align 计算位置。
+`Row / Column / Stack / Rect / Text / Image` 都支持通用交互方法：
+
+```cpp
+.interactive(true)
+.disabled(false)
+.enabled(true)
+.cursor(core::CursorShape::Hand)
+.onClick(callback)
+```
+
+`.onClick(...)` 会自动开启 interactive，并把 cursor 设置为手型。Runtime 会做 topmost hit-test、按下捕获、点击判定和回调派发。
+
+示例：
+
+```cpp
+ui.text("github.link")
+    .size(260.0f, 34.0f)
+    .text("GitHub")
+    .color(accent)
+    .onClick([] {
+        core::platform::openUrl("https://github.com/sudoevolve/EUI-NEO");
+    })
+    .build();
+```
 
 ## Rect DSL
 
@@ -122,7 +120,7 @@ ui.rect("card")
     .build();
 ```
 
-支持：
+Rect 支持：
 
 ```cpp
 .color(...)
@@ -141,21 +139,10 @@ ui.rect("card")
 .rotate(...)
 .rotation(...)
 .transformOrigin(...)
+.states(normal, hover, pressed)
 ```
 
-交互也是 `Rect` 能力：
-
-```cpp
-ui.rect("hit")
-    .size(240.0f, 70.0f)
-    .states(normal, hover, pressed)
-    .onClick([] {
-        // click
-    })
-    .build();
-```
-
-`states(normal, hover, pressed)` 会开启 `interactive`，Runtime 自动维护 hover/press 缓动。
+`.states(normal, hover, pressed)` 是 Rect 专用的 hover / pressed 视觉状态，会开启交互并由 Runtime 维护 blend。
 
 ## Text DSL
 
@@ -172,7 +159,7 @@ ui.text("title")
     .build();
 ```
 
-支持：
+Text 支持：
 
 ```cpp
 .text(...)
@@ -193,6 +180,45 @@ ui.text("title")
 
 `ui.label(id)` 是 `ui.text(id)` 的别名。
 
+## Image DSL
+
+```cpp
+ui.image("cover")
+    .size(320.0f, 180.0f)
+    .source("assets/icon.png")
+    .cover()
+    .radius(16.0f)
+    .build();
+
+ui.image("bing")
+    .size(420.0f, 220.0f)
+    .bingDaily(0, "zh-CN")
+    .cover()
+    .build();
+```
+
+Image 支持：
+
+```cpp
+.source(pathOrUrl)
+.path(path)
+.url(url)
+.bingDaily(idx, mkt)
+.fit(core::ImageFit::Cover)
+.cover()
+.contain()
+.stretch()
+.radius(...)
+.opacity(...)
+.tint(...)
+.color(...)
+.translate(...)
+.scale(...)
+.rotate(...)
+```
+
+默认 fit 是 `Cover`，图片会适应裁剪，不会强行压缩变形。
+
 ## 动画 DSL
 
 动画目标写在元素属性上，Runtime 负责从当前值插值到目标值：
@@ -203,41 +229,19 @@ ui.rect("actor")
     .opacity(active ? 0.4f : 1.0f)
     .rotate(active ? 0.4f : 0.0f)
     .transition(0.42f, core::Ease::OutBack)
+    .animate(core::AnimProperty::Frame |
+             core::AnimProperty::Opacity |
+             core::AnimProperty::Transform)
     .build();
 ```
 
-也可以限制动画属性：
+Frame 动画需要显式 `.animate(core::AnimProperty::Frame)`。窗口大小变化、页面切换导致的普通布局尺寸变化不会默认产生长宽动画。
 
-```cpp
-ui.rect("panel")
-    .color(nextColor)
-    .transition(core::Transition::make(0.2f).animate(core::AnimProperty::Color))
-    .build();
-```
+当前可动画属性：
 
-当前动画框架位于 `core/animation.h`，包含：
-
-- `core::Ease`
-- `core::Transition`
-- `core::AnimatedValue<T>`
-- `core::SmoothedValue<T>`
-
-`Rect` 当前可动画属性：
-
-- frame
-- color
-- opacity
-- radius
-- border
-- shadow
-- blur
-- transform
-
-`Text` 当前可动画属性：
-
-- frame
-- text color
-- opacity
+- Rect：frame、color、opacity、radius、border、shadow、blur、transform。
+- Text：frame、text color、opacity。
+- Image：frame、tint/color、opacity、radius、transform。
 
 ## 组件写法
 
@@ -248,6 +252,7 @@ ui.rect("panel")
 - `components::panel(ui, id)`：直接返回 `ui.rect(id)`。
 - `components::text(ui, id)`：直接返回 `ui.text(id)`。
 - `components::label(ui, id)`：直接返回 `ui.label(id)`。
+- `components::image(ui, id)`：直接返回 `ui.image(id)`。
 - `components::button(ui, id)`：薄 builder，内部组合 `Stack + Rect + Row + Text`。
 
 按钮示例：
@@ -265,36 +270,30 @@ components::button(ui, "save")
     .build();
 ```
 
-写新组件时优先这样做：
-
-- 简单组件：直接返回 core builder。
-- 复杂组件：提供一个薄 builder，内部只声明 DSL 树。
-- 不要在组件里 new / initialize / render / destroy primitive。
-- 不要在组件里做自己的事件循环或动画循环。
-
 ## Runtime 行为
 
 `core::dsl::Runtime` 负责：
 
-- 持有 `Ui`
-- 每帧按需 compose 页面声明
-- 调用 `ui.layout()` 计算逻辑坐标
-- 按 id 缓存 `Rect` / `Text` primitive 实例
-- 维护 hover / press / click
-- 推进 transition 动画
-- 维护 dirty rect
-- 使用离屏 framebuffer cache + scissor 做脏区渲染
-- 处理 DPI scale
-- render / shutdown
+- 持有 `Ui`。
+- 调用 `ui.layout()` 计算逻辑坐标。
+- 按 id 缓存 Rect / Text / Image primitive 实例。
+- 统一处理 pointer event、hit-test、press capture、click。
+- 维护 hover / press 动画状态。
+- 推进 transition 动画。
+- 维护 dirty rect。
+- 使用离屏 framebuffer cache + scissor 做脏区渲染。
+- 处理 DPI scale。
+- render / shutdown。
 
-纯 hover/press/transition 视觉变化不会重新 compose 页面。只有 click 回调导致状态变化时，`app/dsl_app.h` 会请求重新 compose，并保守触发 full redraw。
+纯 hover / press / transition 视觉变化不会重新 compose 页面。click 回调通常会修改 app 状态，因此 Runtime 会设置 `needsCompose()`，`app/dsl_app.h` 再重新 compose 并保守触发 full redraw。
 
 ## 当前限制
 
-- 还没有 z-index，绘制顺序就是声明顺序。
+- 还没有 z-index；声明顺序决定绘制顺序，也影响 topmost hit-test。
 - 还没有 clip / scroll。
 - 还没有键盘 focus。
-- hit-test 当前只对 `Rect` 生效。
-- transform 后的 hit-test 仍按原始布局矩形计算。
+- 还没有事件冒泡。
+- 只有 click 回调，没有公开 hover / drag 回调。
+- transform 后的 hit-test 仍按布局矩形计算。
 - id 移除后的实例缓存目前不会主动回收，只是不再绘制。
 - 脏区渲染是保守矩形，复杂重叠场景可能扩大重绘区域。

@@ -1,0 +1,255 @@
+#include "core/network.h"
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <urlmon.h>
+#endif
+
+#ifndef GLFW_INCLUDE_NONE
+#define GLFW_INCLUDE_NONE
+#endif
+#include <GLFW/glfw3.h>
+
+#if defined(EUI_HAS_CURL)
+#include <curl/curl.h>
+#endif
+
+#include <atomic>
+#include <cstdio>
+#include <filesystem>
+#include <functional>
+#include <fstream>
+#include <mutex>
+#include <sstream>
+#include <thread>
+#include <unordered_map>
+#include <vector>
+
+namespace core::network {
+namespace {
+
+struct TextState {
+    bool started = false;
+    bool ready = false;
+    bool ok = false;
+    std::string body;
+};
+
+std::mutex gTextMutex;
+std::mutex gThreadMutex;
+std::unordered_map<std::string, TextState> gTextRequests;
+std::vector<std::thread> gThreads;
+std::atomic<bool> gAnyTextReady{false};
+
+#if defined(EUI_HAS_CURL)
+size_t curlWriteToFile(void* data, size_t size, size_t nmemb, void* userdata) {
+    const size_t bytes = size * nmemb;
+    auto* output = reinterpret_cast<std::ofstream*>(userdata);
+    output->write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(bytes));
+    return bytes;
+}
+
+size_t curlWriteToString(void* data, size_t size, size_t nmemb, void* userdata) {
+    const size_t bytes = size * nmemb;
+    auto* output = reinterpret_cast<std::string*>(userdata);
+    output->append(reinterpret_cast<const char*>(data), bytes);
+    return bytes;
+}
+
+bool ensureCurlReady() {
+    static bool initialized = false;
+    static bool ready = false;
+    if (!initialized) {
+        ready = curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
+        initialized = true;
+    }
+    return ready;
+}
+#endif
+
+void trackThread(std::thread thread) {
+    std::lock_guard<std::mutex> lock(gThreadMutex);
+    gThreads.push_back(std::move(thread));
+}
+
+void joinThreads() {
+    std::vector<std::thread> threads;
+    {
+        std::lock_guard<std::mutex> lock(gThreadMutex);
+        threads.swap(gThreads);
+    }
+
+    for (std::thread& thread : threads) {
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
+}
+
+} // namespace
+
+bool isHttpUrl(const std::string& url) {
+    return url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0;
+}
+
+std::string cacheFilePath(const std::string& key, const std::string& extension, const std::string& bucket) {
+    std::error_code error;
+    const std::filesystem::path dir = std::filesystem::temp_directory_path(error) / bucket;
+    if (error) {
+        return {};
+    }
+    std::filesystem::create_directories(dir, error);
+    if (error) {
+        return {};
+    }
+
+    std::string safeExtension = extension.empty() ? ".cache" : extension;
+    if (safeExtension.front() != '.') {
+        safeExtension.insert(safeExtension.begin(), '.');
+    }
+
+    std::ostringstream name;
+    name << "item_" << std::hash<std::string>{}(key) << safeExtension;
+    return (dir / name.str()).string();
+}
+
+bool downloadUrlToFile(const std::string& url, const std::string& localPath) {
+#if defined(EUI_HAS_CURL)
+    if (!ensureCurlReady()) {
+        return false;
+    }
+    std::ofstream output(localPath, std::ios::binary | std::ios::trunc);
+    if (!output.good()) {
+        return false;
+    }
+    CURL* curl = curl_easy_init();
+    if (curl == nullptr) {
+        return false;
+    }
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20L);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curlWriteToFile);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &output);
+    const CURLcode code = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    curl_easy_cleanup(curl);
+    output.close();
+    return code == CURLE_OK && status >= 200 && status < 300;
+#elif defined(_WIN32)
+    const HRESULT result = URLDownloadToFileA(nullptr, url.c_str(), localPath.c_str(), 0, nullptr);
+    return SUCCEEDED(result);
+#else
+    (void)url;
+    (void)localPath;
+    return false;
+#endif
+}
+
+bool downloadUrlToString(const std::string& url, std::string& output) {
+#if defined(EUI_HAS_CURL)
+    if (!ensureCurlReady()) {
+        return false;
+    }
+    CURL* curl = curl_easy_init();
+    if (curl == nullptr) {
+        return false;
+    }
+    output.clear();
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curlWriteToString);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &output);
+    const CURLcode code = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    curl_easy_cleanup(curl);
+    return code == CURLE_OK && status >= 200 && status < 300;
+#elif defined(_WIN32)
+    const std::string tempFile = cacheFilePath(url + "__text", ".txt", "eui_test_network_cache");
+    if (tempFile.empty() || !downloadUrlToFile(url, tempFile)) {
+        return false;
+    }
+    std::ifstream input(tempFile, std::ios::binary);
+    if (!input.good()) {
+        std::remove(tempFile.c_str());
+        return false;
+    }
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    output = buffer.str();
+    input.close();
+    std::remove(tempFile.c_str());
+    return !output.empty();
+#else
+    (void)url;
+    output.clear();
+    return false;
+#endif
+}
+
+void requestText(const std::string& key, const std::string& url) {
+    if (key.empty() || !isHttpUrl(url)) {
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(gTextMutex);
+        TextState& state = gTextRequests[key];
+        if (state.started) {
+            return;
+        }
+        state.started = true;
+        state.ready = false;
+        state.ok = false;
+        state.body.clear();
+    }
+
+    trackThread(std::thread([key, url] {
+        std::string body;
+        const bool ok = downloadUrlToString(url, body);
+        {
+            std::lock_guard<std::mutex> lock(gTextMutex);
+            TextState& state = gTextRequests[key];
+            state.ready = true;
+            state.ok = ok;
+            state.body = ok ? std::move(body) : std::string{};
+        }
+        gAnyTextReady.store(true);
+        postNetworkReadyEvent();
+    }));
+}
+
+TextResult textResult(const std::string& key) {
+    std::lock_guard<std::mutex> lock(gTextMutex);
+    const auto it = gTextRequests.find(key);
+    if (it == gTextRequests.end()) {
+        return {};
+    }
+    return {it->second.ready, it->second.ok, it->second.body};
+}
+
+bool consumeAnyTextReady() {
+    return gAnyTextReady.exchange(false);
+}
+
+void postNetworkReadyEvent() {
+    glfwPostEmptyEvent();
+}
+
+void shutdown() {
+    joinThreads();
+#if defined(EUI_HAS_CURL)
+    curl_global_cleanup();
+#endif
+}
+
+} // namespace core::network

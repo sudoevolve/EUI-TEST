@@ -30,8 +30,16 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(glad)
 
 find_package(OpenGL REQUIRED)
+if(NOT WIN32)
+    find_package(CURL REQUIRED)
+else()
+    find_package(CURL QUIET)
+endif()
 
 set(CORE_SOURCES
+    core/image.cpp
+    core/network.cpp
+    core/platform.cpp
     core/text.cpp
 )
 
@@ -48,13 +56,18 @@ function(configure_opengl_app target_name)
     endif()
 
     if(WIN32)
-        target_link_libraries(${target_name} PRIVATE winmm)
+        target_link_libraries(${target_name} PRIVATE winmm urlmon shell32)
 
         add_custom_command(TARGET ${target_name} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:glfw>
             $<TARGET_FILE_DIR:${target_name}>
         )
+    endif()
+
+    if(TARGET CURL::libcurl)
+        target_link_libraries(${target_name} PRIVATE CURL::libcurl)
+        target_compile_definitions(${target_name} PRIVATE EUI_HAS_CURL=1)
     endif()
 
     add_custom_command(TARGET ${target_name} POST_BUILD

@@ -5,6 +5,7 @@
 #include <glad/glad.h>
 
 #include "core/dsl_runtime.h"
+#include "core/network.h"
 
 namespace app {
 
@@ -67,6 +68,10 @@ bool initialize(GLFWwindow*) {
 }
 
 bool update(GLFWwindow* window, float deltaSeconds, int windowWidth, int windowHeight, float dpiScale, float pointerScale) {
+    if (windowWidth <= 0 || windowHeight <= 0 || dpiScale <= 0.0f) {
+        return false;
+    }
+
     const DslAppConfig& config = dslAppConfig();
     const float logicalWidth = static_cast<float>(windowWidth) / dpiScale;
     const float logicalHeight = static_cast<float>(windowHeight) / dpiScale;
@@ -85,7 +90,14 @@ bool update(GLFWwindow* window, float deltaSeconds, int windowWidth, int windowH
         composeFrame();
     }
 
-    bool changed = detail::dslRuntime().update(window, deltaSeconds, pointerScale, dpiScale);
+    bool changed = false;
+    if (core::network::consumeAnyTextReady()) {
+        composeFrame();
+        detail::dslRuntime().markFullRedraw();
+        changed = true;
+    }
+
+    changed = detail::dslRuntime().update(window, deltaSeconds, pointerScale, dpiScale) || changed;
     if (detail::dslRuntime().needsCompose()) {
         composeFrame();
         changed = detail::dslRuntime().update(window, 0.0f, pointerScale, dpiScale) || changed;
@@ -101,12 +113,17 @@ bool isAnimating() {
 }
 
 void render(int windowWidth, int windowHeight, float dpiScale) {
+    if (windowWidth <= 0 || windowHeight <= 0 || dpiScale <= 0.0f) {
+        return;
+    }
+
     const core::Color clearColor = dslAppConfig().clearColor;
     detail::dslRuntime().render(windowWidth, windowHeight, dpiScale, clearColor);
 }
 
 void shutdown() {
     detail::dslRuntime().shutdown();
+    core::network::shutdown();
 }
 
 } // namespace app

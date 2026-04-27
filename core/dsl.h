@@ -2,6 +2,8 @@
 
 #include "core/layout.h"
 #include "core/animation.h"
+#include "core/event.h"
+#include "core/image.h"
 #include "core/primitive.h"
 #include "core/text.h"
 
@@ -45,7 +47,8 @@ enum class ElementKind {
     Column,
     Stack,
     Rect,
-    Text
+    Text,
+    Image
 };
 
 struct Screen {
@@ -89,13 +92,20 @@ struct Element {
     VerticalAlign verticalAlign = VerticalAlign::Top;
     float lineHeight = 0.0f;
 
+    std::string imageSource;
+    bool imageFlipVertically = false;
+    ImageFit imageFit = ImageFit::Cover;
+
     bool interactive = false;
+    bool disabled = false;
+    CursorShape cursor = CursorShape::Arrow;
     Color hoverColor = {1.0f, 1.0f, 1.0f, 1.0f};
     Color pressedColor = {1.0f, 1.0f, 1.0f, 1.0f};
     std::function<void()> onClick;
     std::string visualStateSourceId;
     float pressedScale = 1.0f;
     Transition transition;
+    bool explicitFrameAnimation = false;
 
     std::vector<std::unique_ptr<Element>> children;
 
@@ -234,6 +244,36 @@ public:
         return self();
     }
 
+    Derived& interactive(bool value = true) {
+        element_->interactive = value;
+        if (value) {
+            element_->cursor = CursorShape::Hand;
+        }
+        return self();
+    }
+
+    Derived& disabled(bool value = true) {
+        element_->disabled = value;
+        return self();
+    }
+
+    Derived& enabled(bool value = true) {
+        element_->disabled = !value;
+        return self();
+    }
+
+    Derived& cursor(CursorShape value) {
+        element_->cursor = value;
+        return self();
+    }
+
+    Derived& onClick(std::function<void()> callback) {
+        element_->interactive = true;
+        element_->cursor = CursorShape::Hand;
+        element_->onClick = std::move(callback);
+        return self();
+    }
+
     Derived& visualStateFrom(const std::string& id, float pressedScaleValue = 0.965f);
 
     Derived& transition(const Transition& value) {
@@ -249,6 +289,9 @@ public:
     Derived& animate(AnimProperty property) {
         element_->transition.enabled = true;
         element_->transition.properties = property;
+        if (hasAnimProperty(property, AnimProperty::Frame)) {
+            element_->explicitFrameAnimation = true;
+        }
         return self();
     }
 
@@ -382,6 +425,9 @@ public:
 
     Derived& interactive(bool value = true) {
         this->element_->interactive = value;
+        if (value) {
+            this->element_->cursor = CursorShape::Hand;
+        }
         return this->self();
     }
 
@@ -400,11 +446,13 @@ public:
         this->element_->hoverColor = hover;
         this->element_->pressedColor = pressed;
         this->element_->interactive = true;
+        this->element_->cursor = CursorShape::Hand;
         return this->self();
     }
 
     Derived& onClick(std::function<void()> callback) {
         this->element_->interactive = true;
+        this->element_->cursor = CursorShape::Hand;
         this->element_->onClick = std::move(callback);
         return this->self();
     }
@@ -500,6 +548,113 @@ public:
 
 };
 
+class ImageBuilder : public BuilderBase<ImageBuilder> {
+public:
+    ImageBuilder(Ui& ui, Element* element) : BuilderBase<ImageBuilder>(ui, element) {}
+
+    ImageBuilder& source(const std::string& value) {
+        element_->imageSource = value;
+        return *this;
+    }
+
+    ImageBuilder& path(const std::string& value) {
+        return source(value);
+    }
+
+    ImageBuilder& url(const std::string& value) {
+        return source(value);
+    }
+
+    ImageBuilder& bingDaily(int idx = 0, const std::string& mkt = "zh-CN") {
+        element_->imageSource = "bing://daily?idx=" + std::to_string(std::max(0, idx)) + "&mkt=" + mkt;
+        return *this;
+    }
+
+    ImageBuilder& tint(const Color& value) {
+        element_->color = value;
+        return *this;
+    }
+
+    ImageBuilder& color(const Color& value) {
+        return tint(value);
+    }
+
+    ImageBuilder& radius(float value) {
+        element_->radius = std::max(0.0f, value);
+        return *this;
+    }
+
+    ImageBuilder& rounding(float value) {
+        return radius(value);
+    }
+
+    ImageBuilder& opacity(float value) {
+        element_->opacity = std::clamp(value, 0.0f, 1.0f);
+        return *this;
+    }
+
+    ImageBuilder& flipVertically(bool value = true) {
+        element_->imageFlipVertically = value;
+        return *this;
+    }
+
+    ImageBuilder& fit(ImageFit value) {
+        element_->imageFit = value;
+        return *this;
+    }
+
+    ImageBuilder& cover() {
+        return fit(ImageFit::Cover);
+    }
+
+    ImageBuilder& contain() {
+        return fit(ImageFit::Contain);
+    }
+
+    ImageBuilder& stretch() {
+        return fit(ImageFit::Stretch);
+    }
+
+    ImageBuilder& translate(float xValue, float yValue) {
+        element_->transform.translate = {xValue, yValue};
+        return *this;
+    }
+
+    ImageBuilder& translateX(float value) {
+        element_->transform.translate.x = value;
+        return *this;
+    }
+
+    ImageBuilder& translateY(float value) {
+        element_->transform.translate.y = value;
+        return *this;
+    }
+
+    ImageBuilder& scale(float value) {
+        element_->transform.scale = {value, value};
+        return *this;
+    }
+
+    ImageBuilder& scale(float xValue, float yValue) {
+        element_->transform.scale = {xValue, yValue};
+        return *this;
+    }
+
+    ImageBuilder& rotate(float radians) {
+        element_->transform.rotate = radians;
+        return *this;
+    }
+
+    ImageBuilder& rotation(float radians) {
+        return rotate(radians);
+    }
+
+    ImageBuilder& transformOrigin(float xValue, float yValue) {
+        element_->transform.origin = {xValue, yValue};
+        return *this;
+    }
+};
+
 class Ui {
 public:
     void begin(const std::string& pageId = "") {
@@ -538,6 +693,10 @@ public:
         return text(id);
     }
 
+    ImageBuilder image(const std::string& id) {
+        return ImageBuilder(*this, addElement(ElementKind::Image, id));
+    }
+
     void layout(float width, float height) {
         for (const auto& root : roots_) {
             std::vector<std::pair<Element*, Node*>> links;
@@ -572,6 +731,7 @@ private:
     friend class BuilderBase<LayoutBuilder>;
     friend class BuilderBase<RectBuilder>;
     friend class BuilderBase<TextBuilder>;
+    friend class BuilderBase<ImageBuilder>;
 
     Element* addElement(ElementKind kind, const std::string& id) {
         auto element = std::make_unique<Element>();
@@ -616,6 +776,8 @@ private:
             prefix = "__rect";
         } else if (kind == ElementKind::Text) {
             prefix = "__text";
+        } else if (kind == ElementKind::Image) {
+            prefix = "__image";
         }
         return resolveId(std::string(prefix) + "." + std::to_string(generatedId_++));
     }

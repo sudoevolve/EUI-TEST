@@ -7,6 +7,7 @@
 
 #include "core/dsl.h"
 #include "core/event.h"
+#include "core/image.h"
 
 #include <cmath>
 #include <memory>
@@ -39,6 +40,7 @@ public:
         if (logicalWidth_ != logicalWidth || logicalHeight_ != logicalHeight) {
             needsRender_ = true;
             fullRedraw_ = true;
+            suppressFrameAnimations_ = true;
         }
         logicalWidth_ = logicalWidth;
         logicalHeight_ = logicalHeight;
@@ -48,16 +50,28 @@ public:
         const PointerEvent event = readPointerEvent(window, pointerScale);
         animating_ = false;
         needsCompose_ = false;
+        wantsHandCursor_ = false;
+        if (ImagePrimitive::consumeRemoteImageReady()) {
+            fullRedraw_ = true;
+            needsRender_ = true;
+        }
 
+        const std::string capturedId = capturedInteractionId();
+        const std::string hoverTargetId = !capturedId.empty() ? capturedId : hitTestInteractive(event, dpiScale);
         forEachElement([&](const Element& element) {
+            updateInteraction(element, event, dpiScale, hoverTargetId);
             if (element.kind == ElementKind::Rect) {
-                updateRect(element, event, deltaSeconds, dpiScale);
+                updateRect(element, deltaSeconds, dpiScale);
             } else if (element.kind == ElementKind::Text) {
                 updateText(element, deltaSeconds);
+            } else if (element.kind == ElementKind::Image) {
+                updateImage(element, deltaSeconds);
             }
         });
+        applyCursor(window);
 
         promoteBackdropBlurDirtyRegions();
+        suppressFrameAnimations_ = false;
 
         const bool result = needsRender_;
         needsRender_ = false;
@@ -136,9 +150,18 @@ public:
                 item.second.primitive->destroy();
             }
         }
+        for (auto& item : images_) {
+            if (item.second.initialized) {
+                item.second.primitive->destroy();
+            }
+        }
         rects_.clear();
         texts_.clear();
+        images_.clear();
+        interactions_.clear();
+        ImagePrimitive::releaseCachedTextures();
         releaseRenderCache();
+        destroyCursors();
     }
 
 private:
@@ -164,6 +187,23 @@ private:
         AnimatedValue<LayoutRect> frame;
         AnimatedValue<Color> color;
         AnimatedValue<float> opacity;
+    };
+
+    struct ImageInstance {
+        std::unique_ptr<ImagePrimitive> primitive = std::make_unique<ImagePrimitive>();
+        bool initialized = false;
+        AnimatedValue<LayoutRect> frame;
+        AnimatedValue<Color> tint;
+        AnimatedValue<float> radius;
+        AnimatedValue<float> opacity;
+        AnimatedValue<Transform> transform;
+        std::string source;
+        bool flipVertically = false;
+        ImageFit fit = ImageFit::Cover;
+    };
+
+    struct InteractionInstance {
+        InteractionState state;
     };
 
     struct LogicalDirtyRect {
@@ -298,6 +338,37 @@ private:
         return transformRect(rect, frame, transform);
     }
 
+    static Rect imageVisualRect(const LayoutRect& frame, const Transform& transform = {}) {
+        return transformRect({frame.x, frame.y, frame.width, frame.height}, frame, transform);
+    }
+
+    void applyCursor(GLFWwindow* window) {
+        if (!arrowCursor_) {
+            arrowCursor_ = glfwCreateStandardCursor(GLFW_ARROW_CURSOR);
+        }
+        if (!handCursor_) {
+            handCursor_ = glfwCreateStandardCursor(GLFW_HAND_CURSOR);
+        }
+
+        GLFWcursor* target = wantsHandCursor_ && handCursor_ ? handCursor_ : arrowCursor_;
+        if (target != currentCursor_) {
+            glfwSetCursor(window, target);
+            currentCursor_ = target;
+        }
+    }
+
+    void destroyCursors() {
+        if (arrowCursor_) {
+            glfwDestroyCursor(arrowCursor_);
+            arrowCursor_ = nullptr;
+        }
+        if (handCursor_) {
+            glfwDestroyCursor(handCursor_);
+            handCursor_ = nullptr;
+        }
+        currentCursor_ = nullptr;
+    }
+
     void addDirtyRect(const Rect& rect) {
         if (rect.width <= 0.0f || rect.height <= 0.0f) {
             return;
@@ -391,8 +462,9 @@ private:
     }
 
     static bool isRectAnimating(const Element& element, const RectInstance& instance) {
-        return instance.hoverBlend.isMovingTo(element.interactive && instance.interaction.hover ? 1.0f : 0.0f) ||
-               instance.pressBlend.isMovingTo(element.interactive && instance.interaction.pressed ? 1.0f : 0.0f) ||
+        const bool interactive = element.interactive && !element.disabled;
+        return instance.hoverBlend.isMovingTo(interactive && instance.interaction.hover ? 1.0f : 0.0f) ||
+               instance.pressBlend.isMovingTo(interactive && instance.interaction.pressed ? 1.0f : 0.0f) ||
                instance.frame.isActive() ||
                instance.color.isActive() ||
                instance.radius.isActive() ||
@@ -409,8 +481,26 @@ private:
                instance.opacity.isActive();
     }
 
+    static bool isImageAnimating(const ImageInstance& instance) {
+        return instance.frame.isActive() ||
+               instance.tint.isActive() ||
+               instance.radius.isActive() ||
+               instance.opacity.isActive() ||
+               instance.transform.isActive() ||
+               instance.primitive->hasPendingLoad();
+    }
+
     static bool shouldAnimate(const Element& element, AnimProperty property) {
         return element.transition.enabled && hasAnimProperty(element.transition.properties, property);
+    }
+
+    bool shouldAnimateFrame(const Element& element) const {
+        if (suppressFrameAnimations_) {
+            return false;
+        }
+        return element.transition.enabled &&
+               hasAnimProperty(element.transition.properties, AnimProperty::Frame) &&
+               element.explicitFrameAnimation;
     }
 
     RectInstance& rectInstance(const std::string& id) {
@@ -421,28 +511,74 @@ private:
         return texts_.try_emplace(id).first->second;
     }
 
-    void updateRect(const Element& element, const PointerEvent& event, float deltaSeconds, float dpiScale) {
-        RectInstance& instance = rectInstance(element.id);
-        const Rect beforeRect = visualRect(instance.frame.value(), instance.shadow.value(), instance.blur.value(), instance.transform.value());
+    ImageInstance& imageInstance(const std::string& id) {
+        return images_.try_emplace(id).first->second;
+    }
 
-        if (element.interactive) {
-            const Rect bounds = toPixelRect(element.frame, dpiScale);
-            instance.interaction.update(bounds, event);
-            if (instance.interaction.clicked && element.onClick) {
-                element.onClick();
-                needsCompose_ = true;
+    InteractionInstance& interactionInstance(const std::string& id) {
+        return interactions_.try_emplace(id).first->second;
+    }
+
+    std::string capturedInteractionId() const {
+        for (const auto& item : interactions_) {
+            if (item.second.state.active && ui_.find(item.first)) {
+                return item.first;
             }
         }
+        return {};
+    }
 
-        const bool hoverChanged = instance.hoverBlend.update(element.interactive && instance.interaction.hover ? 1.0f : 0.0f, 9.0f, deltaSeconds);
-        const bool pressChanged = instance.pressBlend.update(element.interactive && instance.interaction.pressed ? 1.0f : 0.0f, 16.0f, deltaSeconds);
+    std::string hitTestInteractive(const PointerEvent& event, float dpiScale) const {
+        std::string targetId;
+        forEachElement([&](const Element& element) {
+            if (!element.interactive || element.disabled) {
+                return;
+            }
+
+            const Rect bounds = toPixelRect(element.frame, dpiScale);
+            if (bounds.contains(event.x, event.y)) {
+                targetId = element.id;
+            }
+        });
+        return targetId;
+    }
+
+    void updateInteraction(const Element& element, const PointerEvent& event, float dpiScale, const std::string& hoverTargetId) {
+        if (!element.interactive && interactions_.find(element.id) == interactions_.end()) {
+            return;
+        }
+
+        InteractionInstance& instance = interactionInstance(element.id);
+        const Rect bounds = toPixelRect(element.frame, dpiScale);
+        const bool enabled = element.interactive && !element.disabled;
+        const bool topmostHover = enabled && element.id == hoverTargetId;
+        instance.state.update(bounds, event, topmostHover, enabled);
+
+        if (enabled && instance.state.hover && element.cursor == CursorShape::Hand) {
+            wantsHandCursor_ = true;
+        }
+
+        if (enabled && instance.state.clicked && element.onClick) {
+            element.onClick();
+            needsCompose_ = true;
+        }
+    }
+
+    void updateRect(const Element& element, float deltaSeconds, float dpiScale) {
+        RectInstance& instance = rectInstance(element.id);
+        instance.interaction = interactionInstance(element.id).state;
+        const Rect beforeRect = visualRect(instance.frame.value(), instance.shadow.value(), instance.blur.value(), instance.transform.value());
+
+        const bool interactive = element.interactive && !element.disabled;
+        const bool hoverChanged = instance.hoverBlend.update(interactive && instance.interaction.hover ? 1.0f : 0.0f, 9.0f, deltaSeconds);
+        const bool pressChanged = instance.pressBlend.update(interactive && instance.interaction.pressed ? 1.0f : 0.0f, 16.0f, deltaSeconds);
         const float hover = instance.hoverBlend.value();
         const float press = instance.pressBlend.value();
         const Color hoverColor = mixColor(element.color, element.hoverColor, hover);
         const Color currentColor = mixColor(hoverColor, element.pressedColor, press);
 
-        bool changed = hoverChanged || pressChanged || (element.interactive && instance.interaction.changed);
-        changed = instance.frame.setTarget(element.frame, element.transition, shouldAnimate(element, AnimProperty::Frame)) || changed;
+        bool changed = hoverChanged || pressChanged || (interactive && instance.interaction.changed);
+        changed = instance.frame.setTarget(element.frame, element.transition, shouldAnimateFrame(element)) || changed;
         changed = instance.color.setTarget(currentColor, element.transition, shouldAnimate(element, AnimProperty::Color)) || changed;
         changed = instance.radius.setTarget(element.radius, element.transition, shouldAnimate(element, AnimProperty::Radius)) || changed;
         changed = instance.blur.setTarget(element.blur, element.transition, shouldAnimate(element, AnimProperty::Blur)) || changed;
@@ -472,7 +608,7 @@ private:
         const Rect beforeRect{instance.frame.value().x, instance.frame.value().y, instance.frame.value().width, instance.frame.value().height};
 
         bool changed = false;
-        changed = instance.frame.setTarget(element.frame, element.transition, shouldAnimate(element, AnimProperty::Frame)) || changed;
+        changed = instance.frame.setTarget(element.frame, element.transition, shouldAnimateFrame(element)) || changed;
         changed = instance.color.setTarget(element.textColor, element.transition, shouldAnimate(element, AnimProperty::TextColor)) || changed;
         changed = instance.opacity.setTarget(element.opacity, element.transition, shouldAnimate(element, AnimProperty::Opacity)) || changed;
 
@@ -485,6 +621,49 @@ private:
             addDirtyUnion(beforeRect, afterRect);
         }
         animating_ = animating_ || isTextAnimating(instance);
+    }
+
+    void updateImage(const Element& element, float deltaSeconds) {
+        ImageInstance& instance = imageInstance(element.id);
+        const Rect beforeRect = imageVisualRect(instance.frame.value(), instance.transform.value());
+
+        bool changed = false;
+        changed = instance.frame.setTarget(element.frame, element.transition, shouldAnimateFrame(element)) || changed;
+        changed = instance.tint.setTarget(element.color, element.transition, shouldAnimate(element, AnimProperty::Color)) || changed;
+        changed = instance.radius.setTarget(element.radius, element.transition, shouldAnimate(element, AnimProperty::Radius)) || changed;
+        changed = instance.opacity.setTarget(element.opacity, element.transition, shouldAnimate(element, AnimProperty::Opacity)) || changed;
+        changed = instance.transform.setTarget(element.transform, element.transition, shouldAnimate(element, AnimProperty::Transform)) || changed;
+
+        changed = instance.frame.tick(deltaSeconds) || changed;
+        changed = instance.tint.tick(deltaSeconds) || changed;
+        changed = instance.radius.tick(deltaSeconds) || changed;
+        changed = instance.opacity.tick(deltaSeconds) || changed;
+        changed = instance.transform.tick(deltaSeconds) || changed;
+
+        const bool sourceChanged = instance.source != element.imageSource ||
+                                   instance.flipVertically != element.imageFlipVertically ||
+                                   instance.fit != element.imageFit;
+        if (sourceChanged) {
+            instance.source = element.imageSource;
+            instance.flipVertically = element.imageFlipVertically;
+            instance.fit = element.imageFit;
+            instance.primitive->setSource(instance.source);
+            instance.primitive->setFlipVertically(instance.flipVertically);
+            instance.primitive->setFit(instance.fit);
+            changed = true;
+        }
+
+        const LayoutRect frame = instance.frame.value();
+        instance.primitive->setBounds(frame.x, frame.y, frame.width, frame.height);
+        if (instance.primitive->updateTexture()) {
+            changed = true;
+        }
+
+        if (changed) {
+            const Rect afterRect = imageVisualRect(instance.frame.value(), instance.transform.value());
+            addDirtyUnion(beforeRect, afterRect);
+        }
+        animating_ = animating_ || isImageAnimating(instance);
     }
 
     RenderTransform resolveRenderTransform(const Element& element, float dpiScale, const RenderTransform& inherited) {
@@ -633,6 +812,13 @@ private:
             if (!dirtyRect || intersects(frame, *dirtyRect)) {
                 renderText(element, windowWidth, windowHeight, dpiScale, renderTransform);
             }
+        } else if (element.kind == ElementKind::Image) {
+            Rect visual = toPixelRect(imageVisualRect(imageInstance(element.id).frame.value(),
+                                                     imageInstance(element.id).transform.value()), dpiScale);
+            visual = applyRenderTransform(visual, renderTransform);
+            if (!dirtyRect || intersects(visual, *dirtyRect)) {
+                renderImage(element, windowWidth, windowHeight, dpiScale, renderTransform);
+            }
         }
 
         for (const auto& child : element.children) {
@@ -727,20 +913,61 @@ private:
         instance.primitive->render(windowWidth, windowHeight);
     }
 
+    void renderImage(const Element& element,
+                     int windowWidth,
+                     int windowHeight,
+                     float dpiScale,
+                     const RenderTransform& renderTransform) {
+        ImageInstance& instance = imageInstance(element.id);
+        if (!instance.initialized) {
+            instance.initialized = instance.primitive->initialize();
+            if (!instance.initialized) {
+                return;
+            }
+        }
+
+        const Rect frame = toPixelRect(instance.frame.value(), dpiScale);
+        const float visualScale = renderTransform.active ? renderTransform.scale : 1.0f;
+        Transform transform = scaleTransform(instance.transform.value(), dpiScale);
+        if (renderTransform.active && frame.width > 0.0f && frame.height > 0.0f) {
+            transform.origin = {
+                (renderTransform.origin.x - frame.x) / frame.width,
+                (renderTransform.origin.y - frame.y) / frame.height
+            };
+            transform.scale.x *= visualScale;
+            transform.scale.y *= visualScale;
+        }
+
+        instance.primitive->setBounds(frame.x, frame.y, frame.width, frame.height);
+        instance.primitive->setTint(instance.tint.value());
+        instance.primitive->setCornerRadius(toPixels(instance.radius.value(), dpiScale));
+        instance.primitive->setOpacity(instance.opacity.value());
+        instance.primitive->setTransform(transform);
+        instance.primitive->setFit(instance.fit);
+        instance.primitive->render(windowWidth, windowHeight);
+    }
+
     Ui ui_;
     std::unordered_map<std::string, RectInstance> rects_;
     std::unordered_map<std::string, TextInstance> texts_;
+    std::unordered_map<std::string, ImageInstance> images_;
+    std::unordered_map<std::string, InteractionInstance> interactions_;
     std::vector<LogicalDirtyRect> dirtyRects_;
     bool needsRender_ = true;
     bool animating_ = false;
     bool needsCompose_ = false;
     bool fullRedraw_ = true;
+    bool suppressFrameAnimations_ = false;
+    bool wantsHandCursor_ = false;
     float logicalWidth_ = 0.0f;
     float logicalHeight_ = 0.0f;
     GLuint cacheFramebuffer_ = 0;
     GLuint cacheTexture_ = 0;
     int cacheWidth_ = 0;
     int cacheHeight_ = 0;
+    GLFWcursor* arrowCursor_ = nullptr;
+    GLFWcursor* handCursor_ = nullptr;
+    GLFWcursor* currentCursor_ = nullptr;
 };
 
 } // namespace core::dsl
