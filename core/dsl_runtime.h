@@ -57,6 +57,8 @@ public:
             }
         });
 
+        promoteBackdropBlurDirtyRegions();
+
         const bool result = needsRender_;
         needsRender_ = false;
         return result;
@@ -77,6 +79,8 @@ public:
 
     void render(int windowWidth, int windowHeight, float dpiScale, const Color& clearColor) {
         if (!ensureRenderCache(windowWidth, windowHeight)) {
+            glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
+            glClear(GL_COLOR_BUFFER_BIT);
             renderDirect(windowWidth, windowHeight, dpiScale);
             dirtyRects_.clear();
             fullRedraw_ = false;
@@ -229,7 +233,54 @@ private:
         return rect;
     }
 
-    static Rect visualRect(const LayoutRect& frame, const Shadow& shadow, float blur) {
+    static Rect scaleRectFromCenter(Rect rect, float scale) {
+        const float centerX = rect.x + rect.width * 0.5f;
+        const float centerY = rect.y + rect.height * 0.5f;
+        rect.width *= scale;
+        rect.height *= scale;
+        rect.x = centerX - rect.width * 0.5f;
+        rect.y = centerY - rect.height * 0.5f;
+        return rect;
+    }
+
+    static bool isIdentityTransform(const Transform& transform) {
+        return closeEnough(transform.translate, Vec2{}) &&
+               closeEnough(transform.scale, Vec2{1.0f, 1.0f}) &&
+               closeEnough(transform.rotate, 0.0f);
+    }
+
+    static Vec2 transformPoint(Vec2 point, const LayoutRect& frame, const Transform& transform) {
+        const Vec2 origin = {
+            frame.x + frame.width * transform.origin.x,
+            frame.y + frame.height * transform.origin.y
+        };
+        const float scaledX = (point.x - origin.x) * transform.scale.x;
+        const float scaledY = (point.y - origin.y) * transform.scale.y;
+        const float cosine = std::cos(transform.rotate);
+        const float sine = std::sin(transform.rotate);
+        return {
+            origin.x + scaledX * cosine - scaledY * sine + transform.translate.x,
+            origin.y + scaledX * sine + scaledY * cosine + transform.translate.y
+        };
+    }
+
+    static Rect transformRect(const Rect& rect, const LayoutRect& frame, const Transform& transform) {
+        if (isIdentityTransform(transform)) {
+            return rect;
+        }
+
+        const Vec2 p0 = transformPoint({rect.x, rect.y}, frame, transform);
+        const Vec2 p1 = transformPoint({rect.x + rect.width, rect.y}, frame, transform);
+        const Vec2 p2 = transformPoint({rect.x + rect.width, rect.y + rect.height}, frame, transform);
+        const Vec2 p3 = transformPoint({rect.x, rect.y + rect.height}, frame, transform);
+        const float left = std::min(std::min(p0.x, p1.x), std::min(p2.x, p3.x));
+        const float top = std::min(std::min(p0.y, p1.y), std::min(p2.y, p3.y));
+        const float right = std::max(std::max(p0.x, p1.x), std::max(p2.x, p3.x));
+        const float bottom = std::max(std::max(p0.y, p1.y), std::max(p2.y, p3.y));
+        return {left, top, right - left, bottom - top};
+    }
+
+    static Rect visualRect(const LayoutRect& frame, const Shadow& shadow, float blur, const Transform& transform = {}) {
         Rect rect{frame.x, frame.y, frame.width, frame.height};
         if (shadow.enabled) {
             Rect shadowRect{
@@ -244,7 +295,7 @@ private:
         if (blur > 0.0f) {
             rect = inflateRect(rect, blur + 2.0f);
         }
-        return rect;
+        return transformRect(rect, frame, transform);
     }
 
     void addDirtyRect(const Rect& rect) {
@@ -257,6 +308,43 @@ private:
 
     void addDirtyUnion(const Rect& before, const Rect& after) {
         addDirtyRect(unionRect(before, after));
+    }
+
+    void promoteBackdropBlurDirtyRegions() {
+        if (fullRedraw_ || dirtyRects_.empty()) {
+            return;
+        }
+
+        bool dirtyTouchesBackdropBlur = false;
+        forEachElement([&](const Element& element) {
+            if (dirtyTouchesBackdropBlur || element.kind != ElementKind::Rect) {
+                return;
+            }
+
+            const RectInstance& instance = rectInstance(element.id);
+            const float blur = std::max(element.blur, instance.blur.value());
+            if (blur <= 0.0f) {
+                return;
+            }
+
+            const LayoutRect frame = instance.frame.value();
+            const Rect captureRect = scaleRectFromCenter(
+                transformRect({frame.x, frame.y, frame.width, frame.height}, frame, instance.transform.value()),
+                1.2f);
+
+            for (const LogicalDirtyRect& dirty : dirtyRects_) {
+                const Rect dirtyRect{dirty.x, dirty.y, dirty.width, dirty.height};
+                if (intersects(captureRect, dirtyRect)) {
+                    dirtyTouchesBackdropBlur = true;
+                    return;
+                }
+            }
+        });
+
+        if (dirtyTouchesBackdropBlur) {
+            fullRedraw_ = true;
+            needsRender_ = true;
+        }
     }
 
     static Vec2 applyRenderTransform(Vec2 point, const RenderTransform& transform) {
@@ -335,7 +423,7 @@ private:
 
     void updateRect(const Element& element, const PointerEvent& event, float deltaSeconds, float dpiScale) {
         RectInstance& instance = rectInstance(element.id);
-        const Rect beforeRect = visualRect(instance.frame.value(), instance.shadow.value(), instance.blur.value());
+        const Rect beforeRect = visualRect(instance.frame.value(), instance.shadow.value(), instance.blur.value(), instance.transform.value());
 
         if (element.interactive) {
             const Rect bounds = toPixelRect(element.frame, dpiScale);
@@ -373,7 +461,7 @@ private:
         changed = instance.transform.tick(deltaSeconds) || changed;
 
         if (changed) {
-            const Rect afterRect = visualRect(instance.frame.value(), instance.shadow.value(), instance.blur.value());
+            const Rect afterRect = visualRect(instance.frame.value(), instance.shadow.value(), instance.blur.value(), instance.transform.value());
             addDirtyUnion(beforeRect, afterRect);
         }
         animating_ = animating_ || isRectAnimating(element, instance);
@@ -532,12 +620,17 @@ private:
         const RenderTransform renderTransform = resolveRenderTransform(element, dpiScale, inheritedTransform);
 
         if (element.kind == ElementKind::Rect) {
-            if (!dirtyRect || intersects(toPixelRect(visualRect(rectInstance(element.id).frame.value(), rectInstance(element.id).shadow.value(), rectInstance(element.id).blur.value()), dpiScale), *dirtyRect)) {
+            Rect visual = toPixelRect(visualRect(rectInstance(element.id).frame.value(),
+                                                rectInstance(element.id).shadow.value(),
+                                                rectInstance(element.id).blur.value(),
+                                                rectInstance(element.id).transform.value()), dpiScale);
+            visual = applyRenderTransform(visual, renderTransform);
+            if (!dirtyRect || intersects(visual, *dirtyRect)) {
                 renderRect(element, windowWidth, windowHeight, dpiScale, renderTransform);
             }
         } else if (element.kind == ElementKind::Text) {
-            const LayoutRect frame = textInstance(element.id).frame.value();
-            if (!dirtyRect || intersects(toPixelRect(frame, dpiScale), *dirtyRect)) {
+            Rect frame = applyRenderTransform(toPixelRect(textInstance(element.id).frame.value(), dpiScale), renderTransform);
+            if (!dirtyRect || intersects(frame, *dirtyRect)) {
                 renderText(element, windowWidth, windowHeight, dpiScale, renderTransform);
             }
         }

@@ -12,8 +12,9 @@ namespace {
 
 int selectedPage = 0;
 bool optionDense = false;
-bool optionGlass = true;
+bool optionGlass = false;
 bool optionMotion = true;
+bool optionLimit60 = true;
 bool animationMoved = false;
 bool animationRotated = false;
 bool animationFaded = false;
@@ -30,11 +31,23 @@ core::Transition pageTransition() {
     return core::Transition::make(0.28f, core::Ease::OutCubic);
 }
 
+core::Transition textTransition() {
+    core::Transition transition = pageTransition();
+    if (transition.enabled) {
+        transition.animate(core::AnimProperty::TextColor | core::AnimProperty::Opacity);
+    }
+    return transition;
+}
+
 core::Transition motionTransition() {
     if (!optionMotion) {
         return core::Transition::none();
     }
     return core::Transition::make(0.42f, core::Ease::OutBack);
+}
+
+double galleryFrameRateLimit() {
+    return optionLimit60 ? 60.0 : 0.0;
 }
 
 core::Color appBg() {
@@ -171,7 +184,7 @@ void composeSidebar(core::dsl::Ui& ui, float height) {
                         .fontSize(27.0f)
                         .lineHeight(32.0f)
                         .color(accent())
-                        .transition(pageTransition())
+                        .transition(textTransition())
                         .horizontalAlign(core::HorizontalAlign::Center)
                         .build();
 
@@ -295,7 +308,7 @@ void textSample(core::dsl::Ui& ui, const std::string& id, const std::string& tex
         .fontSize(size)
         .lineHeight(height)
         .color(color)
-        .transition(pageTransition())
+        .transition(textTransition())
         .build();
 }
 
@@ -332,7 +345,7 @@ void composeTextPage(core::dsl::Ui& ui, float width, float height) {
                                     .lineHeight(34.0f)
                                     .color(accent())
                                     .horizontalAlign(core::HorizontalAlign::Center)
-                                    .transition(pageTransition())
+                                    .transition(textTransition())
                                     .build();
 
                                 caption(ui, std::string("text.icon.label.") + std::to_string(i), names[i], iconCardWidth, 40.0f);
@@ -469,12 +482,13 @@ void composeSettingsPage(core::dsl::Ui& ui, float width, float height) {
     const float rowWidth = std::max(0.0f, std::min(width, 720.0f));
 
     ui.column("settings.list")
-        .size(rowWidth, std::min(height, 260.0f))
+        .size(rowWidth, std::min(height, 346.0f))
         .gap(14.0f)
         .content([&] {
             settingRow(ui, "setting.dense", "Dense layout", "Use tighter spacing for gallery pages.", optionDense, rowWidth, [] { optionDense = !optionDense; });
             settingRow(ui, "setting.glass", "Glass surfaces", "Show transparent panel examples in controls.", optionGlass, rowWidth, [] { optionGlass = !optionGlass; });
             settingRow(ui, "setting.motion", "Animated transitions", "Keep page and property transitions enabled.", optionMotion, rowWidth, [] { optionMotion = !optionMotion; });
+            settingRow(ui, "setting.limit60", "Limit to 60 FPS", "Cap animation rendering below the display refresh rate.", optionLimit60, rowWidth, [] { optionLimit60 = !optionLimit60; });
         });
 }
 
@@ -561,7 +575,7 @@ void composeContent(core::dsl::Ui& ui, float width, float height) {
                         .fontSize(38.0f)
                         .lineHeight(44.0f)
                         .color(accent())
-                        .transition(pageTransition())
+                        .transition(textTransition())
                         .build();
 
                     ui.text("page.subtitle")
@@ -570,7 +584,7 @@ void composeContent(core::dsl::Ui& ui, float width, float height) {
                         .fontSize(20.0f)
                         .lineHeight(28.0f)
                         .color(textMuted())
-                        .transition(pageTransition())
+                        .transition(textTransition())
                         .build();
 
                     ui.column("page.body")
@@ -592,7 +606,9 @@ const DslAppConfig& dslAppConfig() {
         "gallery",
         {0.07f, 0.08f, 0.10f, 1.0f},
         1440,
-        900
+        900,
+        false,
+        galleryFrameRateLimit
     };
     return config;
 }

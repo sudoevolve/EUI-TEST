@@ -286,10 +286,13 @@ private:
         GLint shadowPassLocation = -1;
         GLint backdropLocation = -1;
         GLuint backdropTexture = 0;
+        GLuint backdropFramebuffer = 0;
         int backdropX = 0;
         int backdropY = 0;
         int backdropWidth = 0;
         int backdropHeight = 0;
+        int backdropTextureWidth = 0;
+        int backdropTextureHeight = 0;
         int references = 0;
     };
 
@@ -390,10 +393,16 @@ private:
             glDeleteTextures(1, &resources.backdropTexture);
             resources.backdropTexture = 0;
         }
+        if (resources.backdropFramebuffer) {
+            glDeleteFramebuffers(1, &resources.backdropFramebuffer);
+            resources.backdropFramebuffer = 0;
+        }
         resources.backdropX = 0;
         resources.backdropY = 0;
         resources.backdropWidth = 0;
         resources.backdropHeight = 0;
+        resources.backdropTextureWidth = 0;
+        resources.backdropTextureHeight = 0;
         resources.windowSizeLocation = -1;
         resources.fillColorLocation = -1;
         resources.gradientStartLocation = -1;
@@ -418,16 +427,16 @@ private:
         width = std::max(1, width);
         height = std::max(1, height);
         if (resources.backdropTexture != 0 &&
-            resources.backdropWidth == width &&
-            resources.backdropHeight == height) {
+            resources.backdropTextureWidth == width &&
+            resources.backdropTextureHeight == height) {
             return;
         }
 
         if (resources.backdropTexture == 0) {
             glGenTextures(1, &resources.backdropTexture);
         }
-        resources.backdropWidth = width;
-        resources.backdropHeight = height;
+        resources.backdropTextureWidth = width;
+        resources.backdropTextureHeight = height;
         glBindTexture(GL_TEXTURE_2D, resources.backdropTexture);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -447,14 +456,49 @@ private:
         const int captureWidth = right - left;
         const int captureHeight = bottom - top;
         const int sourceY = safeWindowHeight - bottom;
+        constexpr float backdropScale = 0.5f;
+        const int textureWidth = std::max(1, static_cast<int>(std::ceil(static_cast<float>(captureWidth) * backdropScale)));
+        const int textureHeight = std::max(1, static_cast<int>(std::ceil(static_cast<float>(captureHeight) * backdropScale)));
 
-        ensureBackdropTexture(captureWidth, captureHeight);
+        ensureBackdropTexture(textureWidth, textureHeight);
         SharedResources& resources = sharedResources();
         resources.backdropX = left;
         resources.backdropY = sourceY;
+        resources.backdropWidth = captureWidth;
+        resources.backdropHeight = captureHeight;
+
+        if (resources.backdropFramebuffer == 0) {
+            glGenFramebuffers(1, &resources.backdropFramebuffer);
+        }
+
+        GLint previousReadFramebuffer = 0;
+        GLint previousDrawFramebuffer = 0;
+        GLint previousTexture = 0;
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousReadFramebuffer);
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previousDrawFramebuffer);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
+        const GLboolean scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+
         glBindTexture(GL_TEXTURE_2D, resources.backdropTexture);
-        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, left, sourceY, captureWidth, captureHeight);
-        glBindTexture(GL_TEXTURE_2D, 0);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, previousDrawFramebuffer);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, resources.backdropFramebuffer);
+        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, resources.backdropTexture, 0);
+
+        if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+            if (scissorEnabled) {
+                glDisable(GL_SCISSOR_TEST);
+            }
+            glBlitFramebuffer(left, sourceY, right, sourceY + captureHeight,
+                              0, 0, textureWidth, textureHeight,
+                              GL_COLOR_BUFFER_BIT, GL_LINEAR);
+            if (scissorEnabled) {
+                glEnable(GL_SCISSOR_TEST);
+            }
+        }
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousReadFramebuffer));
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(previousDrawFramebuffer));
+        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
     }
 
     static GLuint compileShader(GLenum type, const char* source) {

@@ -464,6 +464,7 @@ void TextPrimitive::setPosition(float x, float y) {
         return;
     }
     position_ = {x, y};
+    invalidateVertices();
 }
 
 void TextPrimitive::setText(const std::string& text) {
@@ -538,8 +539,13 @@ void TextPrimitive::setLineHeight(float lineHeight) {
 }
 
 void TextPrimitive::setVisualScale(float originX, float originY, float scale) {
+    const float nextScale = std::max(0.01f, scale);
+    if (visualScaleOrigin_.x == originX && visualScaleOrigin_.y == originY && visualScale_ == nextScale) {
+        return;
+    }
     visualScaleOrigin_ = {originX, originY};
-    visualScale_ = std::max(0.01f, scale);
+    visualScale_ = nextScale;
+    invalidateVertices();
 }
 
 void TextPrimitive::setStyle(const TextStyle& style) {
@@ -574,64 +580,11 @@ void TextPrimitive::render(int windowWidth, int windowHeight) {
     if (layoutDirty_) {
         rebuildLayout();
     }
-
-    static thread_local std::vector<float> vertices;
-    vertices.clear();
-    const float lineHeight = style_.lineHeight > 0.0f ? style_.lineHeight : style_.fontSize * 1.2f;
-    float blockYOffset = 0.0f;
-    if (style_.verticalAlign == VerticalAlign::Center) {
-        blockYOffset = -measuredSize_.y * 0.5f;
-    } else if (style_.verticalAlign == VerticalAlign::Bottom) {
-        blockYOffset = -measuredSize_.y;
+    if (verticesDirty_) {
+        rebuildVertices();
     }
 
-    for (size_t lineIndex = 0; lineIndex < lines_.size(); ++lineIndex) {
-        const Line& line = lines_[lineIndex];
-        float lineX = position_.x;
-        if (style_.horizontalAlign == HorizontalAlign::Center) {
-            lineX -= line.width * 0.5f;
-        } else if (style_.horizontalAlign == HorizontalAlign::Right) {
-            lineX -= line.width;
-        }
-
-        const float lineY = position_.y + blockYOffset + static_cast<float>(lineIndex) * lineHeight;
-        for (const LaidOutGlyph& laidOut : line.glyphs) {
-            const Glyph& glyph = laidOut.glyph;
-            const float x0 = lineX + laidOut.x + glyph.xOffset;
-            const float y0 = lineY + laidOut.y + glyph.yOffset;
-            const float x1 = x0 + glyph.width;
-            const float y1 = y0 + glyph.height;
-            const float useSdf = glyph.useSdf ? 1.0f : 0.0f;
-            Vec2 p0{x0, y0};
-            Vec2 p1{x1, y0};
-            Vec2 p2{x1, y1};
-            Vec2 p3{x0, y1};
-
-            if (std::fabs(visualScale_ - 1.0f) > 0.0001f) {
-                auto scalePoint = [&](Vec2 point) {
-                    return Vec2{
-                        visualScaleOrigin_.x + (point.x - visualScaleOrigin_.x) * visualScale_,
-                        visualScaleOrigin_.y + (point.y - visualScaleOrigin_.y) * visualScale_
-                    };
-                };
-                p0 = scalePoint(p0);
-                p1 = scalePoint(p1);
-                p2 = scalePoint(p2);
-                p3 = scalePoint(p3);
-            }
-
-            vertices.insert(vertices.end(), {
-                p0.x, p0.y, glyph.u0, glyph.v0, useSdf,
-                p1.x, p1.y, glyph.u1, glyph.v0, useSdf,
-                p2.x, p2.y, glyph.u1, glyph.v1, useSdf,
-                p0.x, p0.y, glyph.u0, glyph.v0, useSdf,
-                p2.x, p2.y, glyph.u1, glyph.v1, useSdf,
-                p3.x, p3.y, glyph.u0, glyph.v1, useSdf
-            });
-        }
-    }
-
-    if (vertices.empty()) {
+    if (vertices_.empty()) {
         return;
     }
 
@@ -648,8 +601,8 @@ void TextPrimitive::render(int windowWidth, int windowHeight) {
     glBindTexture(GL_TEXTURE_2D, sharedTextAtlas().texture);
     glBindVertexArray(vao_);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertices.size() * sizeof(float)), vertices.data(), GL_DYNAMIC_DRAW);
-    glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size() / 5));
+    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertices_.size() * sizeof(float)), vertices_.data(), GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices_.size() / 5));
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -835,6 +788,7 @@ void TextPrimitive::cacheGlyph(unsigned int codepoint, const Glyph& glyph) {
 
 void TextPrimitive::invalidateLayout() {
     layoutDirty_ = true;
+    invalidateVertices();
 }
 
 void TextPrimitive::rebuildLayout() {
@@ -879,6 +833,69 @@ void TextPrimitive::rebuildLayout() {
     lines_.push_back(currentLine);
     measuredSize_.y = lines_.empty() ? 0.0f : static_cast<float>(lines_.size()) * lineHeight;
     layoutDirty_ = false;
+    invalidateVertices();
+}
+
+void TextPrimitive::invalidateVertices() {
+    verticesDirty_ = true;
+}
+
+void TextPrimitive::rebuildVertices() {
+    vertices_.clear();
+    const float lineHeight = style_.lineHeight > 0.0f ? style_.lineHeight : style_.fontSize * 1.2f;
+    float blockYOffset = 0.0f;
+    if (style_.verticalAlign == VerticalAlign::Center) {
+        blockYOffset = -measuredSize_.y * 0.5f;
+    } else if (style_.verticalAlign == VerticalAlign::Bottom) {
+        blockYOffset = -measuredSize_.y;
+    }
+
+    for (size_t lineIndex = 0; lineIndex < lines_.size(); ++lineIndex) {
+        const Line& line = lines_[lineIndex];
+        float lineX = position_.x;
+        if (style_.horizontalAlign == HorizontalAlign::Center) {
+            lineX -= line.width * 0.5f;
+        } else if (style_.horizontalAlign == HorizontalAlign::Right) {
+            lineX -= line.width;
+        }
+
+        const float lineY = position_.y + blockYOffset + static_cast<float>(lineIndex) * lineHeight;
+        for (const LaidOutGlyph& laidOut : line.glyphs) {
+            const Glyph& glyph = laidOut.glyph;
+            const float x0 = lineX + laidOut.x + glyph.xOffset;
+            const float y0 = lineY + laidOut.y + glyph.yOffset;
+            const float x1 = x0 + glyph.width;
+            const float y1 = y0 + glyph.height;
+            const float useSdf = glyph.useSdf ? 1.0f : 0.0f;
+            Vec2 p0{x0, y0};
+            Vec2 p1{x1, y0};
+            Vec2 p2{x1, y1};
+            Vec2 p3{x0, y1};
+
+            if (std::fabs(visualScale_ - 1.0f) > 0.0001f) {
+                auto scalePoint = [&](Vec2 point) {
+                    return Vec2{
+                        visualScaleOrigin_.x + (point.x - visualScaleOrigin_.x) * visualScale_,
+                        visualScaleOrigin_.y + (point.y - visualScaleOrigin_.y) * visualScale_
+                    };
+                };
+                p0 = scalePoint(p0);
+                p1 = scalePoint(p1);
+                p2 = scalePoint(p2);
+                p3 = scalePoint(p3);
+            }
+
+            vertices_.insert(vertices_.end(), {
+                p0.x, p0.y, glyph.u0, glyph.v0, useSdf,
+                p1.x, p1.y, glyph.u1, glyph.v0, useSdf,
+                p2.x, p2.y, glyph.u1, glyph.v1, useSdf,
+                p0.x, p0.y, glyph.u0, glyph.v0, useSdf,
+                p2.x, p2.y, glyph.u1, glyph.v1, useSdf,
+                p3.x, p3.y, glyph.u0, glyph.v1, useSdf
+            });
+        }
+    }
+    verticesDirty_ = false;
 }
 
 std::vector<unsigned int> TextPrimitive::decodeUtf8(const std::string& text) const {

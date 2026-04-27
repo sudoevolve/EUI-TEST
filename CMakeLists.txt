@@ -48,6 +48,8 @@ function(configure_opengl_app target_name)
     endif()
 
     if(WIN32)
+        target_link_libraries(${target_name} PRIVATE winmm)
+
         add_custom_command(TARGET ${target_name} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:glfw>

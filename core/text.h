@@ -92,7 +92,9 @@ private:
     Glyph* findGlyph(unsigned int codepoint);
     void cacheGlyph(unsigned int codepoint, const Glyph& glyph);
     void invalidateLayout();
+    void invalidateVertices();
     void rebuildLayout();
+    void rebuildVertices();
     std::vector<unsigned int> decodeUtf8(const std::string& text) const;
     float glyphAdvance(unsigned int codepoint);
     void appendCodepointToLine(Line& line, unsigned int codepoint, float& cursorX);
@@ -115,8 +117,10 @@ private:
     std::vector<std::pair<unsigned int, Glyph>> glyphs_;
 
     std::vector<Line> lines_;
+    std::vector<float> vertices_;
     Vec2 measuredSize_;
     bool layoutDirty_ = true;
+    bool verticesDirty_ = true;
     bool fontDirty_ = true;
 
     GLuint vao_ = 0;

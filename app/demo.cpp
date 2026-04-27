@@ -6,7 +6,7 @@ namespace app {
 
 const DslAppConfig& dslAppConfig() {
     static const DslAppConfig config = {
-        "DSL Demo", // windowtitle
+        "Hello EUI", // windowtitle
         "demo", // pageid
         {0.16f, 0.18f, 0.20f, 1.0f}, // bgcolor
         800, // window width
@@ -36,7 +36,7 @@ void compose(core::dsl::Ui& ui, const core::dsl::Screen& screen) {
                 .content([&] {
                     components::text(ui, "title")
                         .size(300.0f, 38.0f)
-                        .text("Light GUI")
+                        .text("Hello EUI")
                         .fontSize(30.0f)
                         .lineHeight(38.0f)
                         .color({0.94f, 0.97f, 1.0f, 1.0f})

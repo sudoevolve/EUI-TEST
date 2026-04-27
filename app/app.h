@@ -8,6 +8,8 @@
 namespace app {
 
 const char* windowTitle();
+bool showFrameCountInTitle();
+double frameRateLimit();
 int initialWindowWidth();
 int initialWindowHeight();
 bool initialize(GLFWwindow* window);
