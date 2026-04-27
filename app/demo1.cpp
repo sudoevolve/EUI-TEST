@@ -155,7 +155,7 @@ void textGallery(core::dsl::Ui& ui, float width) {
         .content([&] {
             ui.text("text.custom.title")
                 .size(width, 54.0f)
-                .text("YouSheBiaoTiHei Custom Font")
+                .text("YouSheBiaoTiHei Custom Font 测试")
                 .customFont("YouSheBiaoTiHei")
                 .fontSize(40.0f)
                 .lineHeight(48.0f)

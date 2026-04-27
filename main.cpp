@@ -96,7 +96,7 @@ int main() {
         return -1;
     }
 
-    const double animationFrameInterval = getDisplayFrameInterval(window);
+    const double fallbackFrameInterval = getDisplayFrameInterval(window);
     double lastFrameTime = glfwGetTime();
 
     while (!glfwWindowShouldClose(window)) {
@@ -127,7 +127,7 @@ int main() {
 
         if (app::isAnimating()) {
             const double frameElapsed = glfwGetTime() - currentFrameTime;
-            const double sleepSeconds = animationFrameInterval - frameElapsed;
+            const double sleepSeconds = fallbackFrameInterval - frameElapsed;
             if (sleepSeconds > 0.0) {
                 std::this_thread::sleep_for(std::chrono::duration<double>(sleepSeconds));
             }
