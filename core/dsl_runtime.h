@@ -9,9 +9,12 @@
 #include "core/event.h"
 #include "core/image.h"
 
+#include <algorithm>
 #include <cmath>
+#include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <unordered_map>
 #include <vector>
 
@@ -29,10 +32,16 @@ public:
         return true;
     }
 
+    bool initialize(GLFWwindow* window) {
+        installInputCallbacks(window);
+        return true;
+    }
+
     template <typename ComposeFn>
     void compose(const std::string& pageId, float logicalWidth, float logicalHeight, ComposeFn&& composeFn) {
         const Screen screen{logicalWidth, logicalHeight};
         ui_.begin(pageId);
+        ui_.setFocusedId(focusedId_);
         composeFn(ui_, screen);
         ui_.end();
         ui_.layout(screen);
@@ -42,18 +51,29 @@ public:
             fullRedraw_ = true;
             suppressFrameAnimations_ = true;
         }
+        if (suppressNextFrameAnimations_) {
+            suppressFrameAnimations_ = true;
+            suppressNextFrameAnimations_ = false;
+        }
         logicalWidth_ = logicalWidth;
         logicalHeight_ = logicalHeight;
     }
 
     bool update(GLFWwindow* window, float deltaSeconds, float pointerScale, float dpiScale) {
         const PointerEvent event = readPointerEvent(window, pointerScale);
+        const auto inputEvents = consumeInputEvents();
+        const KeyboardEvent& keyboardEvent = inputEvents.first;
+        const ScrollEvent& scrollEvent = inputEvents.second;
         animating_ = false;
         needsCompose_ = false;
         wantsHandCursor_ = false;
         if (ImagePrimitive::consumeRemoteImageReady()) {
             fullRedraw_ = true;
             needsRender_ = true;
+        }
+
+        if (event.pressedThisFrame) {
+            setFocusedId(hitTestFocusable(event, dpiScale));
         }
 
         const std::string capturedId = capturedInteractionId();
@@ -68,6 +88,13 @@ public:
                 updateImage(element, deltaSeconds);
             }
         });
+
+        if (scrollEvent.active()) {
+            updateScroll(scrollEvent, hitTestScrollable(event, dpiScale));
+        }
+        if (keyboardEvent.hasInput()) {
+            updateTextInput(keyboardEvent);
+        }
         applyCursor(window);
 
         promoteBackdropBlurDirtyRegions();
@@ -134,7 +161,8 @@ public:
 
     void render(int windowWidth, int windowHeight, float dpiScale) {
         const RenderTransform identity;
-        for (const auto& root : ui_.roots()) {
+        const std::vector<const Element*> roots = orderedElements(ui_.roots());
+        for (const Element* root : roots) {
             renderElement(*root, windowWidth, windowHeight, dpiScale, identity);
         }
     }
@@ -215,7 +243,8 @@ private:
 
     template <typename Fn>
     void forEachElement(Fn&& fn) const {
-        for (const auto& root : ui_.roots()) {
+        const std::vector<const Element*> roots = orderedElements(ui_.roots());
+        for (const Element* root : roots) {
             forEachElement(*root, fn);
         }
     }
@@ -223,9 +252,22 @@ private:
     template <typename Fn>
     static void forEachElement(const Element& element, Fn&& fn) {
         fn(element);
-        for (const auto& child : element.children) {
+        const std::vector<const Element*> children = orderedElements(element.children);
+        for (const Element* child : children) {
             forEachElement(*child, fn);
         }
+    }
+
+    static std::vector<const Element*> orderedElements(const std::vector<std::unique_ptr<Element>>& elements) {
+        std::vector<const Element*> ordered;
+        ordered.reserve(elements.size());
+        for (const auto& element : elements) {
+            ordered.push_back(element.get());
+        }
+        std::stable_sort(ordered.begin(), ordered.end(), [](const Element* a, const Element* b) {
+            return a->zIndex < b->zIndex;
+        });
+        return ordered;
     }
 
     static float toPixels(float value, float dpiScale) {
@@ -263,6 +305,19 @@ private:
         const float right = std::max(a.x + a.width, b.x + b.width);
         const float bottom = std::max(a.y + a.height, b.y + b.height);
         return {left, top, right - left, bottom - top};
+    }
+
+    static bool intersectRect(const Rect& a, const Rect& b, Rect& out) {
+        const float left = std::max(a.x, b.x);
+        const float top = std::max(a.y, b.y);
+        const float right = std::min(a.x + a.width, b.x + b.width);
+        const float bottom = std::min(a.y + a.height, b.y + b.height);
+        if (right <= left || bottom <= top) {
+            out = {};
+            return false;
+        }
+        out = {left, top, right - left, bottom - top};
+        return true;
     }
 
     static Rect inflateRect(Rect rect, float amount) {
@@ -529,18 +584,119 @@ private:
     }
 
     std::string hitTestInteractive(const PointerEvent& event, float dpiScale) const {
-        std::string targetId;
-        forEachElement([&](const Element& element) {
-            if (!element.interactive || element.disabled) {
-                return;
-            }
-
-            const Rect bounds = toPixelRect(element.frame, dpiScale);
-            if (bounds.contains(event.x, event.y)) {
-                targetId = element.id;
-            }
+        return hitTest(event, dpiScale, [](const Element& element) {
+            return element.interactive && !element.disabled;
         });
+    }
+
+    std::string hitTestFocusable(const PointerEvent& event, float dpiScale) const {
+        return hitTest(event, dpiScale, [](const Element& element) {
+            return element.focusable && !element.disabled;
+        });
+    }
+
+    std::string hitTestScrollable(const PointerEvent& event, float dpiScale) const {
+        return hitTest(event, dpiScale, [](const Element& element) {
+            return static_cast<bool>(element.onScroll) && !element.disabled;
+        });
+    }
+
+    template <typename Predicate>
+    std::string hitTest(const PointerEvent& event, float dpiScale, Predicate&& predicate) const {
+        std::string targetId;
+        const std::vector<const Element*> roots = orderedElements(ui_.roots());
+        for (const Element* root : roots) {
+            hitTestElement(*root, event, dpiScale, predicate, false, {}, targetId);
+        }
         return targetId;
+    }
+
+    template <typename Predicate>
+    void hitTestElement(const Element& element,
+                        const PointerEvent& event,
+                        float dpiScale,
+                        Predicate& predicate,
+                        bool hasClip,
+                        const Rect& clipRect,
+                        std::string& targetId) const {
+        Rect effectiveClip = clipRect;
+        bool effectiveHasClip = hasClip;
+        const Rect bounds = toPixelRect(element.frame, dpiScale);
+        if (element.clip) {
+            if (effectiveHasClip) {
+                if (!intersectRect(effectiveClip, bounds, effectiveClip)) {
+                    return;
+                }
+            } else {
+                effectiveClip = bounds;
+                effectiveHasClip = true;
+            }
+        }
+
+        if (effectiveHasClip && !effectiveClip.contains(event.x, event.y)) {
+            return;
+        }
+
+        if (predicate(element) && bounds.contains(event.x, event.y)) {
+            targetId = element.id;
+        }
+
+        const std::vector<const Element*> children = orderedElements(element.children);
+        for (const Element* child : children) {
+            hitTestElement(*child, event, dpiScale, predicate, effectiveHasClip, effectiveClip, targetId);
+        }
+    }
+
+    void setFocusedId(const std::string& id) {
+        if (focusedId_ == id) {
+            return;
+        }
+
+        const std::string oldId = focusedId_;
+        focusedId_ = id;
+        ui_.setFocusedId(focusedId_);
+
+        if (const Element* oldElement = ui_.find(oldId)) {
+            if (oldElement->onFocusChanged) {
+                oldElement->onFocusChanged(false);
+            }
+        }
+        if (const Element* newElement = ui_.find(focusedId_)) {
+            if (newElement->onFocusChanged) {
+                newElement->onFocusChanged(true);
+            }
+        }
+        needsCompose_ = true;
+        needsRender_ = true;
+    }
+
+    void updateScroll(const ScrollEvent& event, const std::string& targetId) {
+        if (targetId.empty()) {
+            return;
+        }
+
+        if (const Element* element = ui_.find(targetId)) {
+            if (element->onScroll && !element->disabled) {
+                element->onScroll(event);
+                needsCompose_ = true;
+                needsRender_ = true;
+                suppressNextFrameAnimations_ = true;
+            }
+        }
+    }
+
+    void updateTextInput(const KeyboardEvent& event) {
+        if (focusedId_.empty()) {
+            return;
+        }
+
+        if (const Element* element = ui_.find(focusedId_)) {
+            if (element->onTextInput && !element->disabled) {
+                element->onTextInput(event);
+                needsCompose_ = true;
+                needsRender_ = true;
+            }
+        }
     }
 
     void updateInteraction(const Element& element, const PointerEvent& event, float dpiScale, const std::string& hoverTargetId) {
@@ -558,9 +714,30 @@ private:
             wantsHandCursor_ = true;
         }
 
+        if (enabled && instance.state.pressStarted && element.onPress) {
+            element.onPress(event, bounds);
+            needsCompose_ = true;
+            needsRender_ = true;
+        }
+
         if (enabled && instance.state.clicked && element.onClick) {
             element.onClick();
             needsCompose_ = true;
+        }
+
+        if (enabled && instance.state.pressed && element.onDrag &&
+            (event.deltaX != 0.0 || event.deltaY != 0.0 || instance.state.drag)) {
+            element.onDrag({
+                event.x,
+                event.y,
+                event.deltaX,
+                event.deltaY,
+                instance.state.dragDeltaX,
+                instance.state.dragDeltaY
+            });
+            needsCompose_ = true;
+            needsRender_ = true;
+            suppressNextFrameAnimations_ = true;
         }
     }
 
@@ -774,7 +951,17 @@ private:
         glScissor(x, std::max<GLint>(0, y), std::max<GLsizei>(1, width), std::max<GLsizei>(1, height));
     }
 
+    static void applyOptionalScissor(bool enabled, const Rect& rect, int windowHeight) {
+        if (!enabled) {
+            glDisable(GL_SCISSOR_TEST);
+            return;
+        }
+        glEnable(GL_SCISSOR_TEST);
+        applyScissor(rect, windowHeight);
+    }
+
     void blitRenderCache(int windowWidth, int windowHeight) {
+        glDisable(GL_SCISSOR_TEST);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, cacheFramebuffer_);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
         glBlitFramebuffer(0, 0, windowWidth, windowHeight,
@@ -785,8 +972,11 @@ private:
 
     void renderDirect(int windowWidth, int windowHeight, float dpiScale, const Rect* dirtyRect = nullptr) {
         const RenderTransform identity;
-        for (const auto& root : ui_.roots()) {
-            renderElement(*root, windowWidth, windowHeight, dpiScale, identity, dirtyRect);
+        const bool hasScissor = dirtyRect != nullptr;
+        const Rect scissor = dirtyRect ? *dirtyRect : Rect{};
+        const std::vector<const Element*> roots = orderedElements(ui_.roots());
+        for (const Element* root : roots) {
+            renderElement(*root, windowWidth, windowHeight, dpiScale, identity, dirtyRect, hasScissor, scissor);
         }
     }
 
@@ -795,8 +985,23 @@ private:
                        int windowHeight,
                        float dpiScale,
                        const RenderTransform& inheritedTransform,
-                       const Rect* dirtyRect = nullptr) {
+                       const Rect* dirtyRect = nullptr,
+                       bool hasScissor = false,
+                       const Rect& scissorRect = {}) {
         const RenderTransform renderTransform = resolveRenderTransform(element, dpiScale, inheritedTransform);
+        Rect effectiveScissor = scissorRect;
+        bool effectiveHasScissor = hasScissor;
+        if (element.clip) {
+            Rect clipFrame = applyRenderTransform(toPixelRect(element.frame, dpiScale), renderTransform);
+            if (effectiveHasScissor) {
+                if (!intersectRect(effectiveScissor, clipFrame, effectiveScissor)) {
+                    return;
+                }
+            } else {
+                effectiveScissor = clipFrame;
+                effectiveHasScissor = true;
+            }
+        }
 
         if (element.kind == ElementKind::Rect) {
             Rect visual = toPixelRect(visualRect(rectInstance(element.id).frame.value(),
@@ -804,25 +1009,32 @@ private:
                                                 rectInstance(element.id).blur.value(),
                                                 rectInstance(element.id).transform.value()), dpiScale);
             visual = applyRenderTransform(visual, renderTransform);
-            if (!dirtyRect || intersects(visual, *dirtyRect)) {
+            if ((!dirtyRect || intersects(visual, *dirtyRect)) &&
+                (!effectiveHasScissor || intersects(visual, effectiveScissor))) {
+                applyOptionalScissor(effectiveHasScissor, effectiveScissor, windowHeight);
                 renderRect(element, windowWidth, windowHeight, dpiScale, renderTransform);
             }
         } else if (element.kind == ElementKind::Text) {
             Rect frame = applyRenderTransform(toPixelRect(textInstance(element.id).frame.value(), dpiScale), renderTransform);
-            if (!dirtyRect || intersects(frame, *dirtyRect)) {
+            if ((!dirtyRect || intersects(frame, *dirtyRect)) &&
+                (!effectiveHasScissor || intersects(frame, effectiveScissor))) {
+                applyOptionalScissor(effectiveHasScissor, effectiveScissor, windowHeight);
                 renderText(element, windowWidth, windowHeight, dpiScale, renderTransform);
             }
         } else if (element.kind == ElementKind::Image) {
             Rect visual = toPixelRect(imageVisualRect(imageInstance(element.id).frame.value(),
                                                      imageInstance(element.id).transform.value()), dpiScale);
             visual = applyRenderTransform(visual, renderTransform);
-            if (!dirtyRect || intersects(visual, *dirtyRect)) {
+            if ((!dirtyRect || intersects(visual, *dirtyRect)) &&
+                (!effectiveHasScissor || intersects(visual, effectiveScissor))) {
+                applyOptionalScissor(effectiveHasScissor, effectiveScissor, windowHeight);
                 renderImage(element, windowWidth, windowHeight, dpiScale, renderTransform);
             }
         }
 
-        for (const auto& child : element.children) {
-            renderElement(*child, windowWidth, windowHeight, dpiScale, renderTransform, dirtyRect);
+        const std::vector<const Element*> children = orderedElements(element.children);
+        for (const Element* child : children) {
+            renderElement(*child, windowWidth, windowHeight, dpiScale, renderTransform, dirtyRect, effectiveHasScissor, effectiveScissor);
         }
     }
 
@@ -958,7 +1170,9 @@ private:
     bool needsCompose_ = false;
     bool fullRedraw_ = true;
     bool suppressFrameAnimations_ = false;
+    bool suppressNextFrameAnimations_ = false;
     bool wantsHandCursor_ = false;
+    std::string focusedId_;
     float logicalWidth_ = 0.0f;
     float logicalHeight_ = 0.0f;
     GLuint cacheFramebuffer_ = 0;

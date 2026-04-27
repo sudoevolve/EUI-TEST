@@ -72,6 +72,10 @@ public:
     const TextStyle& style() const;
     Vec2 position() const;
     Vec2 measuredSize();
+    static float measureTextWidth(const std::string& text,
+                                  const std::string& fontFamily = {},
+                                  float fontSize = 16.0f,
+                                  int fontWeight = 400);
 
     void render(int windowWidth, int windowHeight);
 

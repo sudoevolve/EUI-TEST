@@ -56,6 +56,15 @@ struct Screen {
     float height = 0.0f;
 };
 
+struct DragEvent {
+    double x = 0.0;
+    double y = 0.0;
+    double deltaX = 0.0;
+    double deltaY = 0.0;
+    double totalX = 0.0;
+    double totalY = 0.0;
+};
+
 struct Element {
     ElementKind kind = ElementKind::Stack;
     std::string id;
@@ -71,6 +80,8 @@ struct Element {
     Align mainAlign = Align::START;
     Align crossAlign = Align::START;
     LayoutRect frame;
+    int zIndex = 0;
+    bool clip = false;
 
     Color color = {1.0f, 1.0f, 1.0f, 1.0f};
     Gradient gradient;
@@ -97,11 +108,17 @@ struct Element {
     ImageFit imageFit = ImageFit::Cover;
 
     bool interactive = false;
+    bool focusable = false;
     bool disabled = false;
     CursorShape cursor = CursorShape::Arrow;
     Color hoverColor = {1.0f, 1.0f, 1.0f, 1.0f};
     Color pressedColor = {1.0f, 1.0f, 1.0f, 1.0f};
     std::function<void()> onClick;
+    std::function<void(const PointerEvent&, const Rect&)> onPress;
+    std::function<void(bool)> onFocusChanged;
+    std::function<void(const KeyboardEvent&)> onTextInput;
+    std::function<void(const ScrollEvent&)> onScroll;
+    std::function<void(const DragEvent&)> onDrag;
     std::string visualStateSourceId;
     float pressedScale = 1.0f;
     Transition transition;
@@ -239,6 +256,24 @@ public:
         return self();
     }
 
+    Derived& zIndex(int value) {
+        element_->zIndex = value;
+        return self();
+    }
+
+    Derived& z(int value) {
+        return zIndex(value);
+    }
+
+    Derived& clip(bool value = true) {
+        element_->clip = value;
+        return self();
+    }
+
+    Derived& overflowHidden(bool value = true) {
+        return clip(value);
+    }
+
     Derived& pressedScale(float value) {
         element_->pressedScale = std::clamp(value, 0.80f, 1.0f);
         return self();
@@ -249,6 +284,12 @@ public:
         if (value) {
             element_->cursor = CursorShape::Hand;
         }
+        return self();
+    }
+
+    Derived& focusable(bool value = true) {
+        element_->focusable = value;
+        element_->interactive = value || element_->interactive;
         return self();
     }
 
@@ -271,6 +312,39 @@ public:
         element_->interactive = true;
         element_->cursor = CursorShape::Hand;
         element_->onClick = std::move(callback);
+        return self();
+    }
+
+    Derived& onPress(std::function<void(const PointerEvent&, const Rect&)> callback) {
+        element_->interactive = true;
+        element_->cursor = CursorShape::Hand;
+        element_->onPress = std::move(callback);
+        return self();
+    }
+
+    Derived& onFocusChanged(std::function<void(bool)> callback) {
+        element_->focusable = true;
+        element_->interactive = true;
+        element_->onFocusChanged = std::move(callback);
+        return self();
+    }
+
+    Derived& onTextInput(std::function<void(const KeyboardEvent&)> callback) {
+        element_->focusable = true;
+        element_->interactive = true;
+        element_->onTextInput = std::move(callback);
+        return self();
+    }
+
+    Derived& onScroll(std::function<void(const ScrollEvent&)> callback) {
+        element_->interactive = true;
+        element_->onScroll = std::move(callback);
+        return self();
+    }
+
+    Derived& onDrag(std::function<void(const DragEvent&)> callback) {
+        element_->interactive = true;
+        element_->onDrag = std::move(callback);
         return self();
     }
 
@@ -727,11 +801,20 @@ public:
         return roots_;
     }
 
+    bool isFocused(const std::string& id) const {
+        return !focusedId_.empty() && focusedId_ == resolveId(id);
+    }
+
 private:
+    friend class Runtime;
     friend class BuilderBase<LayoutBuilder>;
     friend class BuilderBase<RectBuilder>;
     friend class BuilderBase<TextBuilder>;
     friend class BuilderBase<ImageBuilder>;
+
+    void setFocusedId(const std::string& id) {
+        focusedId_ = id;
+    }
 
     Element* addElement(ElementKind kind, const std::string& id) {
         auto element = std::make_unique<Element>();
@@ -761,6 +844,10 @@ private:
 
     std::string resolveId(const std::string& id) const {
         if (id.empty() || pageId_.empty()) {
+            return id;
+        }
+        const std::string prefix = pageId_ + ".";
+        if (id.rfind(prefix, 0) == 0) {
             return id;
         }
         return pageId_ + "." + id;
@@ -804,6 +891,7 @@ private:
     std::vector<std::unique_ptr<Element>> roots_;
     std::vector<Element*> stack_;
     std::unordered_map<std::string, Element*> index_;
+    std::string focusedId_;
     std::size_t generatedId_ = 0;
 };
 

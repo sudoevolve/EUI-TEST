@@ -21,6 +21,13 @@ bool optionNight = true;
 bool animationMoved = false;
 bool animationRotated = false;
 bool animationFaded = false;
+bool sampleChecked = true;
+bool sampleSwitch = true;
+bool sampleRadioA = true;
+std::string sampleInput = "EUI";
+float sampleProgress = 0.62f;
+float sampleScroll = 36.0f;
+float pageScroll[6] = {};
 
 constexpr float kSidebarWidth = 272.0f;
 constexpr float kNavTop = 128.0f;
@@ -492,13 +499,25 @@ std::string bingApiText() {
 
 void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
     const float cardGap = 18.0f;
-    const float cardWidth = std::max(90.0f, std::min(204.0f, (width - cardGap * 2.0f) / 3.0f));
+    const float cardWidth = std::max(72.0f, std::min(204.0f, (width - cardGap * 2.0f) / 3.0f));
     const float rowWidth = cardWidth * 3.0f + cardGap * 2.0f;
     const float rowHeight = 144.0f;
-    const float buttonWidth = std::max(92.0f, std::min(178.0f, (width - 36.0f) / 3.0f));
+    const float buttonWidth = std::max(72.0f, std::min(178.0f, (width - 36.0f) / 3.0f));
+    const float fieldWidth = std::max(0.0f, std::min(width, 680.0f));
+    const float componentCardWidth = std::max(120.0f, std::min(340.0f, (width - 20.0f) * 0.5f));
+    const float componentRowWidth = componentCardWidth * 2.0f + 20.0f;
+
+    ui.text("controls.components.title")
+        .size(width, 30.0f)
+        .text("Basic Components")
+        .customFont("YouSheBiaoTiHei")
+        .fontSize(26.0f)
+        .lineHeight(30.0f)
+        .color(textPrimary())
+        .build();
 
     ui.row("controls.buttons")
-        .size(buttonWidth * 3.0f + 36.0f, 78.0f)
+        .size(buttonWidth * 3.0f + 36.0f, 68.0f)
         .gap(18.0f)
         .content([&] {
             components::button(ui, "control.primary")
@@ -533,6 +552,99 @@ void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
                 .transition(pageTransition())
                 .build();
         });
+
+    components::input(ui, "control.input")
+        .theme(themeColors())
+        .size(fieldWidth, 44.0f)
+        .value(sampleInput)
+        .placeholder("Type here")
+        .onChange([](const std::string& value) {
+            sampleInput = value;
+        })
+        .build();
+
+    ui.row("controls.toggles")
+        .size(componentRowWidth, 92.0f)
+        .gap(20.0f)
+        .content([&] {
+            ui.column("controls.checks")
+                .size(componentCardWidth, 92.0f)
+                .gap(12.0f)
+                .content([&] {
+                    components::checkbox(ui, "control.checkbox")
+                        .theme(themeColors())
+                        .size(componentCardWidth, 30.0f)
+                        .checked(sampleChecked)
+                        .text("Checkbox")
+                        .onChange([](bool value) { sampleChecked = value; })
+                        .build();
+
+                    components::toggleSwitch(ui, "control.switch")
+                        .theme(themeColors())
+                        .size(componentCardWidth, 32.0f)
+                        .checked(sampleSwitch)
+                        .label("Switch")
+                        .onChange([](bool value) { sampleSwitch = value; })
+                        .build();
+                })
+                .build();
+
+            ui.column("controls.radios")
+                .size(componentCardWidth, 92.0f)
+                .gap(12.0f)
+                .content([&] {
+                    components::radio(ui, "control.radio.a")
+                        .theme(themeColors())
+                        .size(componentCardWidth, 30.0f)
+                        .selected(sampleRadioA)
+                        .text("Radio A")
+                        .onSelect([] { sampleRadioA = true; })
+                        .build();
+
+                    components::radio(ui, "control.radio.b")
+                        .theme(themeColors())
+                        .size(componentCardWidth, 30.0f)
+                        .selected(!sampleRadioA)
+                        .text("Radio B")
+                        .onSelect([] { sampleRadioA = false; })
+                        .build();
+                })
+                .build();
+        });
+
+    ui.row("controls.progress.scroll")
+        .size(fieldWidth, 54.0f)
+        .gap(18.0f)
+        .alignItems(core::Align::CENTER)
+        .content([&] {
+            components::progress(ui, "control.progress")
+                .theme(themeColors())
+                .size(std::max(160.0f, fieldWidth - 34.0f), 14.0f)
+                .value(sampleProgress)
+                .transition(pageTransition())
+                .build();
+
+            components::scroll(ui, "control.scroll")
+                .theme(themeColors())
+                .size(8.0f, 54.0f)
+                .viewport(54.0f)
+                .content(160.0f)
+                .offset(sampleScroll)
+                .onChange([](float value) {
+                    sampleScroll = value;
+                    sampleProgress = std::clamp(value / 106.0f, 0.0f, 1.0f);
+                })
+                .build();
+        });
+
+    ui.text("controls.primitives.title")
+        .size(width, 30.0f)
+        .text("Primitive Properties")
+        .customFont("YouSheBiaoTiHei")
+        .fontSize(25.0f)
+        .lineHeight(30.0f)
+        .color(textPrimary())
+        .build();
 
     ui.row("properties.a")
         .size(rowWidth, rowHeight)
@@ -955,6 +1067,25 @@ void composePageBody(core::dsl::Ui& ui, float width, float height) {
     }
 }
 
+float pageBodyContentHeight(float viewportHeight) {
+    if (selectedPage == 0) {
+        return std::max(viewportHeight, optionDense ? 760.0f : 820.0f);
+    }
+    if (selectedPage == 1) {
+        return std::max(viewportHeight, 420.0f);
+    }
+    if (selectedPage == 2) {
+        return std::max(viewportHeight, 430.0f);
+    }
+    if (selectedPage == 3) {
+        return std::max(viewportHeight, 430.0f);
+    }
+    if (selectedPage == 4) {
+        return std::max(viewportHeight, 340.0f);
+    }
+    return std::max(viewportHeight, 360.0f);
+}
+
 void composeContent(core::dsl::Ui& ui, float width, float height) {
     const float shellWidth = std::max(0.0f, width - 72.0f);
     const float innerWidth = std::max(0.0f, shellWidth - 64.0f);
@@ -962,6 +1093,15 @@ void composeContent(core::dsl::Ui& ui, float width, float height) {
     const float innerHeight = std::max(0.0f, shellHeight - 64.0f);
     const float headerGap = optionDense ? 18.0f : 26.0f;
     const float bodyHeight = std::max(0.0f, innerHeight - 46.0f - 30.0f - headerGap * 2.0f);
+    const float contentHeight = pageBodyContentHeight(bodyHeight);
+    const float maxScroll = std::max(0.0f, contentHeight - bodyHeight);
+    const bool scrollable = maxScroll > 0.0f;
+    const int page = std::clamp(selectedPage, 0, 5);
+    pageScroll[page] = std::clamp(pageScroll[page], 0.0f, maxScroll);
+    const float scrollOffset = pageScroll[page];
+    const float scrollWidth = scrollable ? 8.0f : 0.0f;
+    const float scrollGap = scrollable ? 16.0f : 0.0f;
+    const float bodyContentWidth = std::max(0.0f, innerWidth - scrollWidth - scrollGap);
 
     ui.stack("content.area")
         .size(width, height)
@@ -1005,11 +1145,36 @@ void composeContent(core::dsl::Ui& ui, float width, float height) {
                         .transition(textTransition())
                         .build();
 
-                    ui.column("page.body")
+                    ui.stack("page.body")
                         .size(innerWidth, bodyHeight)
-                        .gap(headerGap)
+                        .clip()
+                        .onScroll([page, maxScroll](const core::ScrollEvent& event) {
+                            pageScroll[page] = std::clamp(pageScroll[page] - static_cast<float>(event.y) * 48.0f, 0.0f, maxScroll);
+                        })
                         .content([&] {
-                            composePageBody(ui, innerWidth, bodyHeight);
+                            ui.column("page.body.content")
+                                .y(-scrollOffset)
+                                .size(bodyContentWidth, contentHeight)
+                                .gap(headerGap)
+                                .content([&] {
+                                    composePageBody(ui, bodyContentWidth, contentHeight);
+                                })
+                                .build();
+
+                            if (scrollable) {
+                                components::scroll(ui, "page.body.scroll")
+                                    .theme(themeColors())
+                                    .x(std::max(0.0f, innerWidth - scrollWidth))
+                                    .size(scrollWidth, bodyHeight)
+                                    .viewport(bodyHeight)
+                                    .content(contentHeight)
+                                    .offset(scrollOffset)
+                                    .zIndex(10)
+                                    .onChange([page](float value) {
+                                        pageScroll[page] = value;
+                                    })
+                                    .build();
+                            }
                         })
                         .build();
                 });

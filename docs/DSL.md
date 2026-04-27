@@ -78,7 +78,12 @@ ui.stack("root")
 .justifyContent(core::Align::CENTER)
 .alignItems(core::Align::CENTER)
 .align(core::Align::CENTER, core::Align::CENTER)
+.zIndex(value)
+.clip()
+.overflowHidden()
 ```
+
+`.zIndex(...)` 只影响同级元素的绘制顺序和 topmost hit-test，不参与布局计算；值越大越靠上。`.clip()` 会按该元素布局矩形裁剪自己和子树，并且命中测试也不会穿出裁剪区域。
 
 ## 通用交互 DSL
 
@@ -90,6 +95,11 @@ ui.stack("root")
 .enabled(true)
 .cursor(core::CursorShape::Hand)
 .onClick(callback)
+.focusable()
+.onFocusChanged(callback)
+.onTextInput(callback)
+.onScroll(callback)
+.onDrag(callback)
 ```
 
 `.onClick(...)` 会自动开启 interactive，并把 cursor 设置为手型。Runtime 会做 topmost hit-test、按下捕获、点击判定和回调派发。
@@ -254,6 +264,11 @@ Frame 动画需要显式 `.animate(core::AnimProperty::Frame)`。窗口大小变
 - `components::label(ui, id)`：返回套用 theme token 文本色的 label builder。
 - `components::image(ui, id)`：返回套用 theme token 的 `ImageBuilder`。
 - `components::button(ui, id)`：薄 builder，内部组合 `Stack + Rect + Row + Text`。
+- `components::checkbox(ui, id)`：无状态 checkbox，点击回调 next checked。
+- `components::toggleSwitch(ui, id)`：无状态 switch，点击回调 next checked。
+- `components::progress(ui, id)`：进度条，value 范围 `0.0f - 1.0f`。
+- `components::input(ui, id)`：基础文本输入，页面传 value，组件回调 next value。
+- `components::scroll(ui, id)`：滚动条/offset 控制器，页面传 viewport/content/offset，组件回调 next offset。
 
 按钮示例：
 
@@ -289,11 +304,11 @@ components::button(ui, "save")
 
 ## 当前限制
 
-- 还没有 z-index；声明顺序决定绘制顺序，也影响 topmost hit-test。
-- 还没有 clip / scroll。
-- 还没有键盘 focus。
+- 已有基础 z-index 和矩形 clip；复杂圆角 clip、嵌套滚动区域的事件冒泡还没做。
+- `components::scroll` 现在负责滚动条和 offset，内容区可以用 `.clip()` + `y(-offset)` 组合实现裁剪滚动。
+- 已有基础键盘 focus / text input / 选择 / 剪贴板；IME 组合态和撤销栈还没做。
 - 还没有事件冒泡。
-- 只有 click 回调，没有公开 hover / drag 回调。
+- 已有 click / text input / scroll / drag 回调，还没有公开 hover 回调。
 - transform 后的 hit-test 仍按布局矩形计算。
 - id 移除后的实例缓存目前不会主动回收，只是不再绘制。
 - 脏区渲染是保守矩形，复杂重叠场景可能扩大重绘区域。

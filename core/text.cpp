@@ -572,6 +572,75 @@ Vec2 TextPrimitive::measuredSize() {
     return measuredSize_;
 }
 
+float TextPrimitive::measureTextWidth(const std::string& text,
+                                      const std::string& fontFamily,
+                                      float fontSize,
+                                      int fontWeight) {
+    if (text.empty()) {
+        return 0.0f;
+    }
+
+    const float size = std::max(1.0f, fontSize);
+    const std::string fontPath = resolveFontPath(fontFamily, fontWeight);
+    auto holder = loadSharedFontStack(fontPath, size);
+    if (!holder || holder->faces.empty()) {
+        return 0.0f;
+    }
+
+    float width = 0.0f;
+    size_t index = 0;
+    while (index < text.size()) {
+        const unsigned int codepoint = readCodepoint(text, index);
+        const FontFace* face = &holder->faces.front();
+        if (codepoint != ' ' && codepoint != '\t') {
+            for (const FontFace& candidate : holder->faces) {
+                if (stbtt_FindGlyphIndex(&candidate.info, static_cast<int>(codepoint)) != 0) {
+                    face = &candidate;
+                    break;
+                }
+            }
+
+            if (stbtt_FindGlyphIndex(&face->info, static_cast<int>(codepoint)) == 0) {
+                for (const std::string& fallbackPath : holder->lazyFallbackPaths) {
+                    if (fallbackPath.empty()) {
+                        continue;
+                    }
+
+                    const bool alreadyLoaded = std::any_of(holder->faces.begin(), holder->faces.end(),
+                                                           [&](const FontFace& loadedFace) {
+                                                               return loadedFace.path == fallbackPath;
+                                                           });
+                    if (alreadyLoaded) {
+                        continue;
+                    }
+
+                    FontFace fallback;
+                    if (!loadFontFace(fallbackPath, size, !isFontAwesomePath(fallbackPath), fallback)) {
+                        continue;
+                    }
+
+                    if (stbtt_FindGlyphIndex(&fallback.info, static_cast<int>(codepoint)) != 0) {
+                        holder->faces.push_back(std::move(fallback));
+                        face = &holder->faces.back();
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (stbtt_FindGlyphIndex(&face->info, static_cast<int>(codepoint)) == 0) {
+            width += size * 0.5f;
+            continue;
+        }
+
+        int advance = 0;
+        int leftSideBearing = 0;
+        stbtt_GetCodepointHMetrics(&face->info, static_cast<int>(codepoint), &advance, &leftSideBearing);
+        width += static_cast<float>(advance) * face->scale;
+    }
+    return width;
+}
+
 void TextPrimitive::render(int windowWidth, int windowHeight) {
     if (!shaderProgram_ || !vao_ || !vbo_) {
         return;

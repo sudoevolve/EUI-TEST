@@ -63,8 +63,8 @@ int initialWindowHeight() {
     return dslAppConfig().windowHeight;
 }
 
-bool initialize(GLFWwindow*) {
-    return detail::dslRuntime().initialize();
+bool initialize(GLFWwindow* window) {
+    return detail::dslRuntime().initialize(window);
 }
 
 bool update(GLFWwindow* window, float deltaSeconds, int windowWidth, int windowHeight, float dpiScale, float pointerScale) {

@@ -1,7 +1,13 @@
 #pragma once
 
 #include "components/button.h"
+#include "components/checkbox.h"
 #include "components/image.h"
+#include "components/input.h"
 #include "components/panel.h"
+#include "components/progress.h"
+#include "components/radio.h"
+#include "components/scroll.h"
+#include "components/switch.h"
 #include "components/theme.h"
 #include "components/text.h"

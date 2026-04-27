@@ -8,6 +8,8 @@
 #include "core/primitive.h"
 
 #include <cmath>
+#include <string>
+#include <utility>
 
 namespace core {
 
@@ -25,6 +27,183 @@ struct PointerEvent {
     bool pressedThisFrame = false;
     bool releasedThisFrame = false;
 };
+
+struct KeyboardEvent {
+    std::string text;
+    std::string pasteText;
+    bool backspace = false;
+    bool del = false;
+    bool enter = false;
+    bool left = false;
+    bool right = false;
+    bool home = false;
+    bool end = false;
+    bool selectAll = false;
+    bool copy = false;
+    bool cut = false;
+    bool shift = false;
+    bool escape = false;
+
+    bool hasInput() const {
+        return !text.empty() || !pasteText.empty() || backspace || del || enter ||
+               left || right || home || end || selectAll || copy || cut || escape;
+    }
+};
+
+struct ScrollEvent {
+    double x = 0.0;
+    double y = 0.0;
+
+    bool active() const {
+        return x != 0.0 || y != 0.0;
+    }
+};
+
+namespace detail {
+
+struct InputQueue {
+    std::string text;
+    std::string pasteText;
+    double scrollX = 0.0;
+    double scrollY = 0.0;
+    bool backspace = false;
+    bool del = false;
+    bool enter = false;
+    bool left = false;
+    bool right = false;
+    bool home = false;
+    bool end = false;
+    bool selectAll = false;
+    bool copy = false;
+    bool cut = false;
+    bool shift = false;
+    bool escape = false;
+};
+
+inline InputQueue& inputQueue() {
+    static InputQueue queue;
+    return queue;
+}
+
+inline void appendUtf8(std::string& output, unsigned int codepoint) {
+    if (codepoint < 0x20) {
+        return;
+    }
+    if (codepoint <= 0x7F) {
+        output.push_back(static_cast<char>(codepoint));
+    } else if (codepoint <= 0x7FF) {
+        output.push_back(static_cast<char>(0xC0 | ((codepoint >> 6) & 0x1F)));
+        output.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    } else if (codepoint <= 0xFFFF) {
+        output.push_back(static_cast<char>(0xE0 | ((codepoint >> 12) & 0x0F)));
+        output.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    } else {
+        output.push_back(static_cast<char>(0xF0 | ((codepoint >> 18) & 0x07)));
+        output.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    }
+}
+
+} // namespace detail
+
+inline void installInputCallbacks(GLFWwindow* window) {
+    if (!window) {
+        return;
+    }
+
+    glfwSetCharCallback(window, [](GLFWwindow*, unsigned int codepoint) {
+        detail::appendUtf8(detail::inputQueue().text, codepoint);
+    });
+
+    glfwSetScrollCallback(window, [](GLFWwindow*, double xoffset, double yoffset) {
+        detail::InputQueue& queue = detail::inputQueue();
+        queue.scrollX += xoffset;
+        queue.scrollY += yoffset;
+    });
+
+    glfwSetKeyCallback(window, [](GLFWwindow* currentWindow, int key, int, int action, int mods) {
+        if (action != GLFW_PRESS && action != GLFW_REPEAT) {
+            return;
+        }
+
+        detail::InputQueue& queue = detail::inputQueue();
+        const bool ctrl = (mods & GLFW_MOD_CONTROL) != 0 || (mods & GLFW_MOD_SUPER) != 0;
+        queue.shift = (mods & GLFW_MOD_SHIFT) != 0;
+        if (ctrl && key == GLFW_KEY_V) {
+            if (const char* clipboard = glfwGetClipboardString(currentWindow)) {
+                queue.pasteText += clipboard;
+            }
+            return;
+        }
+        if (ctrl && key == GLFW_KEY_C) {
+            queue.copy = true;
+            return;
+        }
+        if (ctrl && key == GLFW_KEY_X) {
+            queue.cut = true;
+            return;
+        }
+        if (ctrl && key == GLFW_KEY_A) {
+            queue.selectAll = true;
+            return;
+        }
+
+        switch (key) {
+        case GLFW_KEY_BACKSPACE:
+            queue.backspace = true;
+            break;
+        case GLFW_KEY_DELETE:
+            queue.del = true;
+            break;
+        case GLFW_KEY_ENTER:
+        case GLFW_KEY_KP_ENTER:
+            queue.enter = true;
+            break;
+        case GLFW_KEY_LEFT:
+            queue.left = true;
+            break;
+        case GLFW_KEY_RIGHT:
+            queue.right = true;
+            break;
+        case GLFW_KEY_HOME:
+            queue.home = true;
+            break;
+        case GLFW_KEY_END:
+            queue.end = true;
+            break;
+        case GLFW_KEY_ESCAPE:
+            queue.escape = true;
+            break;
+        default:
+            break;
+        }
+    });
+}
+
+inline std::pair<KeyboardEvent, ScrollEvent> consumeInputEvents() {
+    detail::InputQueue& queue = detail::inputQueue();
+    KeyboardEvent keyboard;
+    keyboard.text = std::move(queue.text);
+    keyboard.pasteText = std::move(queue.pasteText);
+    keyboard.backspace = queue.backspace;
+    keyboard.del = queue.del;
+    keyboard.enter = queue.enter;
+    keyboard.left = queue.left;
+    keyboard.right = queue.right;
+    keyboard.home = queue.home;
+    keyboard.end = queue.end;
+    keyboard.selectAll = queue.selectAll;
+    keyboard.copy = queue.copy;
+    keyboard.cut = queue.cut;
+    keyboard.shift = queue.shift;
+    keyboard.escape = queue.escape;
+
+    ScrollEvent scroll{queue.scrollX, queue.scrollY};
+    queue = {};
+    return {std::move(keyboard), scroll};
+}
 
 struct InteractionState {
     bool hover = false;
