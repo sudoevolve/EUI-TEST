@@ -283,6 +283,7 @@ private:
         instance.primitive->setBorder(scaleBorder(element.border, dpiScale));
         instance.primitive->setShadow(scaleShadow(element.shadow, dpiScale));
         instance.primitive->setCornerRadius(toPixels(element.radius, dpiScale));
+        instance.primitive->setBlur(toPixels(element.blur, dpiScale));
         instance.primitive->setOpacity(element.opacity);
         instance.primitive->setTransform(transform);
         instance.primitive->render(windowWidth, windowHeight);

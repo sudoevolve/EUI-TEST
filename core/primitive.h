@@ -93,17 +93,44 @@ public:
             "uniform vec4 uGradientEnd;\n"
             "uniform vec4 uBorderColor;\n"
             "uniform vec4 uShadowColor;\n"
+            "uniform vec2 uWindowSize;\n"
             "uniform vec4 uRect;\n"
             "uniform float uRadius;\n"
             "uniform float uBorderWidth;\n"
             "uniform float uOpacity;\n"
             "uniform float uShadowBlur;\n"
+            "uniform float uBlurAmount;\n"
             "uniform int uUseGradient;\n"
             "uniform int uGradientDirection;\n"
             "uniform int uShadowPass;\n"
+            "uniform sampler2D uBackdrop;\n"
+            "float rand(vec2 co) {\n"
+            "    return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);\n"
+            "}\n"
             "float roundedBoxDistance(vec2 point, vec2 halfSize, float radius) {\n"
             "    vec2 cornerVector = abs(point) - halfSize + vec2(radius);\n"
             "    return length(max(cornerVector, 0.0)) + min(max(cornerVector.x, cornerVector.y), 0.0) - radius;\n"
+            "}\n"
+            "vec3 backdropBlur(vec2 uv) {\n"
+            "    vec2 pixelStep = 1.0 / max(uWindowSize, vec2(1.0));\n"
+            "    float blurRadiusPx = uBlurAmount;\n"
+            "    vec3 blurred = texture(uBackdrop, uv).rgb;\n"
+            "    float repeats = mix(8.0, 24.0, clamp(blurRadiusPx / 36.0, 0.0, 1.0));\n"
+            "    const float tau = 6.28318530718;\n"
+            "    for (float i = 0.0; i < 24.0; i += 1.0) {\n"
+            "        if (i >= repeats) break;\n"
+            "        float angle = (i / repeats) * tau;\n"
+            "        vec2 dir = vec2(cos(angle), sin(angle));\n"
+            "        float radiusA = blurRadiusPx * (0.35 + 0.65 * rand(vec2(i, uv.x + uv.y)));\n"
+            "        vec2 uvA = clamp(uv + dir * radiusA * pixelStep, pixelStep * 0.5, vec2(1.0) - pixelStep * 0.5);\n"
+            "        blurred += texture(uBackdrop, uvA).rgb;\n"
+            "        float angleB = angle + (0.5 * tau / repeats);\n"
+            "        vec2 dirB = vec2(cos(angleB), sin(angleB));\n"
+            "        float radiusB = blurRadiusPx * (0.20 + 0.80 * rand(vec2(i + 2.0, uv.x + uv.y + 24.0)));\n"
+            "        vec2 uvB = clamp(uv + dirB * radiusB * pixelStep, pixelStep * 0.5, vec2(1.0) - pixelStep * 0.5);\n"
+            "        blurred += texture(uBackdrop, uvB).rgb;\n"
+            "    }\n"
+            "    return blurred / (repeats * 2.0 + 1.0);\n"
             "}\n"
             "void main() {\n"
             "    vec2 center = uRect.xy + uRect.zw * 0.5;\n"
@@ -122,75 +149,66 @@ public:
             "        clamp((vLocalPos.x - uRect.x) / max(uRect.z, 1.0), 0.0, 1.0) :\n"
             "        clamp((vLocalPos.y - uRect.y) / max(uRect.w, 1.0), 0.0, 1.0);\n"
             "    vec4 fill = uUseGradient == 1 ? mix(uGradientStart, uGradientEnd, gradientAmount) : uFillColor;\n"
+            "    if (uBlurAmount > 0.0) {\n"
+            "        vec2 backdropUv = gl_FragCoord.xy / max(uWindowSize, vec2(1.0));\n"
+            "        vec3 blurred = backdropBlur(backdropUv);\n"
+            "        fill = vec4(mix(blurred, fill.rgb, fill.a), 1.0);\n"
+            "    }\n"
             "    float borderAlpha = uBorderWidth > 0.0 ? smoothstep(-uBorderWidth - edgeWidth, -uBorderWidth + edgeWidth, distanceToEdge) : 0.0;\n"
             "    vec4 color = mix(fill, uBorderColor, borderAlpha);\n"
             "    FragColor = vec4(color.rgb, color.a * shapeAlpha * uOpacity);\n"
             "}\n";
 
-        GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSource);
-        GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
-        if (!vertexShader || !fragmentShader) {
+        if (!retainSharedResources(vertexSource, fragmentSource)) {
             return false;
         }
 
-        shaderProgram_ = glCreateProgram();
-        glAttachShader(shaderProgram_, vertexShader);
-        glAttachShader(shaderProgram_, fragmentShader);
-        glLinkProgram(shaderProgram_);
-        glDeleteShader(vertexShader);
-        glDeleteShader(fragmentShader);
-
-        GLint linked = 0;
-        glGetProgramiv(shaderProgram_, GL_LINK_STATUS, &linked);
-        if (!linked) {
-            glDeleteProgram(shaderProgram_);
-            shaderProgram_ = 0;
-            return false;
-        }
-
-        windowSizeLocation_ = glGetUniformLocation(shaderProgram_, "uWindowSize");
-        fillColorLocation_ = glGetUniformLocation(shaderProgram_, "uFillColor");
-        gradientStartLocation_ = glGetUniformLocation(shaderProgram_, "uGradientStart");
-        gradientEndLocation_ = glGetUniformLocation(shaderProgram_, "uGradientEnd");
-        borderColorLocation_ = glGetUniformLocation(shaderProgram_, "uBorderColor");
-        shadowColorLocation_ = glGetUniformLocation(shaderProgram_, "uShadowColor");
-        rectLocation_ = glGetUniformLocation(shaderProgram_, "uRect");
-        radiusLocation_ = glGetUniformLocation(shaderProgram_, "uRadius");
-        borderWidthLocation_ = glGetUniformLocation(shaderProgram_, "uBorderWidth");
-        opacityLocation_ = glGetUniformLocation(shaderProgram_, "uOpacity");
-        shadowBlurLocation_ = glGetUniformLocation(shaderProgram_, "uShadowBlur");
-        useGradientLocation_ = glGetUniformLocation(shaderProgram_, "uUseGradient");
-        gradientDirectionLocation_ = glGetUniformLocation(shaderProgram_, "uGradientDirection");
-        shadowPassLocation_ = glGetUniformLocation(shaderProgram_, "uShadowPass");
-
-        glGenVertexArrays(1, &vao_);
-        glGenBuffers(1, &vbo_);
-        glBindVertexArray(vao_);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 24, nullptr, GL_DYNAMIC_DRAW);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, nullptr);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, reinterpret_cast<void*>(sizeof(float) * 2));
-        glEnableVertexAttribArray(1);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-        glBindVertexArray(0);
-
+        const SharedResources& resources = sharedResources();
+        vao_ = resources.vao;
+        vbo_ = resources.vbo;
+        shaderProgram_ = resources.shaderProgram;
+        windowSizeLocation_ = resources.windowSizeLocation;
+        fillColorLocation_ = resources.fillColorLocation;
+        gradientStartLocation_ = resources.gradientStartLocation;
+        gradientEndLocation_ = resources.gradientEndLocation;
+        borderColorLocation_ = resources.borderColorLocation;
+        shadowColorLocation_ = resources.shadowColorLocation;
+        rectLocation_ = resources.rectLocation;
+        radiusLocation_ = resources.radiusLocation;
+        borderWidthLocation_ = resources.borderWidthLocation;
+        opacityLocation_ = resources.opacityLocation;
+        shadowBlurLocation_ = resources.shadowBlurLocation;
+        blurAmountLocation_ = resources.blurAmountLocation;
+        useGradientLocation_ = resources.useGradientLocation;
+        gradientDirectionLocation_ = resources.gradientDirectionLocation;
+        shadowPassLocation_ = resources.shadowPassLocation;
+        backdropLocation_ = resources.backdropLocation;
         return true;
     }
 
     void destroy() {
-        if (vbo_) {
-            glDeleteBuffers(1, &vbo_);
-            vbo_ = 0;
-        }
-        if (vao_) {
-            glDeleteVertexArrays(1, &vao_);
-            vao_ = 0;
-        }
         if (shaderProgram_) {
-            glDeleteProgram(shaderProgram_);
-            shaderProgram_ = 0;
+            releaseSharedResources();
         }
+        vbo_ = 0;
+        vao_ = 0;
+        shaderProgram_ = 0;
+        windowSizeLocation_ = -1;
+        fillColorLocation_ = -1;
+        gradientStartLocation_ = -1;
+        gradientEndLocation_ = -1;
+        borderColorLocation_ = -1;
+        shadowColorLocation_ = -1;
+        rectLocation_ = -1;
+        radiusLocation_ = -1;
+        borderWidthLocation_ = -1;
+        opacityLocation_ = -1;
+        shadowBlurLocation_ = -1;
+        blurAmountLocation_ = -1;
+        useGradientLocation_ = -1;
+        gradientDirectionLocation_ = -1;
+        shadowPassLocation_ = -1;
+        backdropLocation_ = -1;
     }
 
     void setBounds(float x, float y, float width, float height) { bounds_ = {x, y, width, height}; }
@@ -200,6 +218,7 @@ public:
     void setOpacity(float opacity) { opacity_ = std::clamp(opacity, 0.0f, 1.0f); }
     void setBorder(const Border& border) { border_ = border; }
     void setShadow(const Shadow& shadow) { shadow_ = shadow; }
+    void setBlur(float blur) { blur_ = std::max(0.0f, blur); }
     void setTranslate(float x, float y) { transform_.translate = {x, y}; }
     void setScale(float x, float y) { transform_.scale = {x, y}; }
     void setRotate(float radians) { transform_.rotate = radians; }
@@ -211,6 +230,7 @@ public:
     const Gradient& gradient() const { return gradient_; }
     const Border& border() const { return border_; }
     const Shadow& shadow() const { return shadow_; }
+    float blur() const { return blur_; }
     const Transform& transform() const { return transform_; }
     float cornerRadius() const { return cornerRadius_; }
     float opacity() const { return opacity_; }
@@ -224,6 +244,10 @@ public:
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+        if (blur_ > 0.0f) {
+            captureBackdrop(windowWidth, windowHeight);
+        }
+
         if (shadow_.enabled) {
             drawShadow(windowWidth, windowHeight);
         }
@@ -236,6 +260,180 @@ public:
     }
 
 private:
+    struct SharedResources {
+        GLuint vao = 0;
+        GLuint vbo = 0;
+        GLuint shaderProgram = 0;
+        GLint windowSizeLocation = -1;
+        GLint fillColorLocation = -1;
+        GLint gradientStartLocation = -1;
+        GLint gradientEndLocation = -1;
+        GLint borderColorLocation = -1;
+        GLint shadowColorLocation = -1;
+        GLint rectLocation = -1;
+        GLint radiusLocation = -1;
+        GLint borderWidthLocation = -1;
+        GLint opacityLocation = -1;
+        GLint shadowBlurLocation = -1;
+        GLint blurAmountLocation = -1;
+        GLint useGradientLocation = -1;
+        GLint gradientDirectionLocation = -1;
+        GLint shadowPassLocation = -1;
+        GLint backdropLocation = -1;
+        GLuint backdropTexture = 0;
+        int backdropWidth = 0;
+        int backdropHeight = 0;
+        int references = 0;
+    };
+
+    static SharedResources& sharedResources() {
+        static SharedResources resources;
+        return resources;
+    }
+
+    static bool retainSharedResources(const char* vertexSource, const char* fragmentSource) {
+        SharedResources& resources = sharedResources();
+        ++resources.references;
+        if (resources.shaderProgram != 0) {
+            return true;
+        }
+
+        GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSource);
+        GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
+        if (!vertexShader || !fragmentShader) {
+            if (vertexShader) {
+                glDeleteShader(vertexShader);
+            }
+            if (fragmentShader) {
+                glDeleteShader(fragmentShader);
+            }
+            resources.references = std::max(0, resources.references - 1);
+            return false;
+        }
+
+        resources.shaderProgram = glCreateProgram();
+        glAttachShader(resources.shaderProgram, vertexShader);
+        glAttachShader(resources.shaderProgram, fragmentShader);
+        glLinkProgram(resources.shaderProgram);
+        glDeleteShader(vertexShader);
+        glDeleteShader(fragmentShader);
+
+        GLint linked = 0;
+        glGetProgramiv(resources.shaderProgram, GL_LINK_STATUS, &linked);
+        if (!linked) {
+            glDeleteProgram(resources.shaderProgram);
+            resources.shaderProgram = 0;
+            resources.references = std::max(0, resources.references - 1);
+            return false;
+        }
+
+        resources.windowSizeLocation = glGetUniformLocation(resources.shaderProgram, "uWindowSize");
+        resources.fillColorLocation = glGetUniformLocation(resources.shaderProgram, "uFillColor");
+        resources.gradientStartLocation = glGetUniformLocation(resources.shaderProgram, "uGradientStart");
+        resources.gradientEndLocation = glGetUniformLocation(resources.shaderProgram, "uGradientEnd");
+        resources.borderColorLocation = glGetUniformLocation(resources.shaderProgram, "uBorderColor");
+        resources.shadowColorLocation = glGetUniformLocation(resources.shaderProgram, "uShadowColor");
+        resources.rectLocation = glGetUniformLocation(resources.shaderProgram, "uRect");
+        resources.radiusLocation = glGetUniformLocation(resources.shaderProgram, "uRadius");
+        resources.borderWidthLocation = glGetUniformLocation(resources.shaderProgram, "uBorderWidth");
+        resources.opacityLocation = glGetUniformLocation(resources.shaderProgram, "uOpacity");
+        resources.shadowBlurLocation = glGetUniformLocation(resources.shaderProgram, "uShadowBlur");
+        resources.blurAmountLocation = glGetUniformLocation(resources.shaderProgram, "uBlurAmount");
+        resources.useGradientLocation = glGetUniformLocation(resources.shaderProgram, "uUseGradient");
+        resources.gradientDirectionLocation = glGetUniformLocation(resources.shaderProgram, "uGradientDirection");
+        resources.shadowPassLocation = glGetUniformLocation(resources.shaderProgram, "uShadowPass");
+        resources.backdropLocation = glGetUniformLocation(resources.shaderProgram, "uBackdrop");
+
+        glGenVertexArrays(1, &resources.vao);
+        glGenBuffers(1, &resources.vbo);
+        glBindVertexArray(resources.vao);
+        glBindBuffer(GL_ARRAY_BUFFER, resources.vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 24, nullptr, GL_DYNAMIC_DRAW);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, nullptr);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, reinterpret_cast<void*>(sizeof(float) * 2));
+        glEnableVertexAttribArray(1);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+
+        return resources.shaderProgram != 0 && resources.vao != 0 && resources.vbo != 0;
+    }
+
+    static void releaseSharedResources() {
+        SharedResources& resources = sharedResources();
+        resources.references = std::max(0, resources.references - 1);
+        if (resources.references > 0) {
+            return;
+        }
+
+        if (resources.vbo) {
+            glDeleteBuffers(1, &resources.vbo);
+            resources.vbo = 0;
+        }
+        if (resources.vao) {
+            glDeleteVertexArrays(1, &resources.vao);
+            resources.vao = 0;
+        }
+        if (resources.shaderProgram) {
+            glDeleteProgram(resources.shaderProgram);
+            resources.shaderProgram = 0;
+        }
+        if (resources.backdropTexture) {
+            glDeleteTextures(1, &resources.backdropTexture);
+            resources.backdropTexture = 0;
+        }
+        resources.backdropWidth = 0;
+        resources.backdropHeight = 0;
+        resources.windowSizeLocation = -1;
+        resources.fillColorLocation = -1;
+        resources.gradientStartLocation = -1;
+        resources.gradientEndLocation = -1;
+        resources.borderColorLocation = -1;
+        resources.shadowColorLocation = -1;
+        resources.rectLocation = -1;
+        resources.radiusLocation = -1;
+        resources.borderWidthLocation = -1;
+        resources.opacityLocation = -1;
+        resources.shadowBlurLocation = -1;
+        resources.blurAmountLocation = -1;
+        resources.useGradientLocation = -1;
+        resources.gradientDirectionLocation = -1;
+        resources.shadowPassLocation = -1;
+        resources.backdropLocation = -1;
+    }
+
+    static void ensureBackdropTexture(int width, int height) {
+        SharedResources& resources = sharedResources();
+        width = std::max(1, width);
+        height = std::max(1, height);
+        if (resources.backdropTexture != 0 &&
+            resources.backdropWidth == width &&
+            resources.backdropHeight == height) {
+            return;
+        }
+
+        if (resources.backdropTexture == 0) {
+            glGenTextures(1, &resources.backdropTexture);
+        }
+        resources.backdropWidth = width;
+        resources.backdropHeight = height;
+        glBindTexture(GL_TEXTURE_2D, resources.backdropTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    static void captureBackdrop(int width, int height) {
+        ensureBackdropTexture(width, height);
+        SharedResources& resources = sharedResources();
+        glBindTexture(GL_TEXTURE_2D, resources.backdropTexture);
+        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, std::max(1, width), std::max(1, height));
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
     static GLuint compileShader(GLenum type, const char* source) {
         GLuint shader = glCreateShader(type);
         glShaderSource(shader, 1, &source, nullptr);
@@ -348,16 +546,25 @@ private:
         glUniform1f(borderWidthLocation_, borderWidth);
         glUniform1f(opacityLocation_, opacity_);
         glUniform1f(shadowBlurLocation_, blur);
+        glUniform1f(blurAmountLocation_, shadowPass ? 0.0f : blur_);
         glUniform1i(useGradientLocation_, gradient_.enabled && !shadowPass ? 1 : 0);
         glUniform1i(gradientDirectionLocation_, static_cast<int>(gradient_.direction));
         glUniform1i(shadowPassLocation_, shadowPass ? 1 : 0);
+        glUniform1i(backdropLocation_, 0);
 
+        if (!shadowPass && blur_ > 0.0f) {
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, sharedResources().backdropTexture);
+        }
         glBindVertexArray(vao_);
         glBindBuffer(GL_ARRAY_BUFFER, vbo_);
         glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
         glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindVertexArray(0);
+        if (!shadowPass && blur_ > 0.0f) {
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
     }
 
     Rect bounds_;
@@ -367,6 +574,7 @@ private:
     Shadow shadow_;
     Transform transform_;
     float cornerRadius_ = 0.0f;
+    float blur_ = 0.0f;
     float opacity_ = 1.0f;
     GLuint vao_ = 0;
     GLuint vbo_ = 0;
@@ -382,9 +590,11 @@ private:
     GLint borderWidthLocation_ = -1;
     GLint opacityLocation_ = -1;
     GLint shadowBlurLocation_ = -1;
+    GLint blurAmountLocation_ = -1;
     GLint useGradientLocation_ = -1;
     GLint gradientDirectionLocation_ = -1;
     GLint shadowPassLocation_ = -1;
+    GLint backdropLocation_ = -1;
 };
 
 inline Color mixColor(const Color& from, const Color& to, float amount) {

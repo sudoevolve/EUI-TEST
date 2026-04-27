@@ -104,11 +104,89 @@ void rectSample(core::dsl::Ui& ui, const std::string& id, const std::string& lab
         });
 }
 
+void blurShowcase(core::dsl::Ui& ui, float width) {
+    const float stageWidth = std::min(width, 660.0f);
+    const float glassX = stageWidth * 0.5f - 180.0f;
+
+    ui.column("blur.showcase.wrap")
+        .size(width, 190.0f)
+        .alignItems(core::Align::START)
+        .content([&] {
+            ui.stack("blur.showcase")
+                .size(stageWidth, 170.0f)
+                .content([&] {
+                    ui.rect("blur.showcase.bg")
+                        .size(stageWidth, 170.0f)
+                        .color({0.08f, 0.10f, 0.14f, 0.55f})
+                        .radius(22.0f)
+                        .border(1.0f, {0.24f, 0.32f, 0.42f, 0.70f})
+                        .build();
+
+                    ui.rect("blur.showcase.ball.a")
+                        .x(glassX + 26.0f)
+                        .y(48.0f)
+                        .size(76.0f, 76.0f)
+                        .color({0.16f, 0.58f, 0.96f, 0.76f})
+                        .radius(38.0f)
+                        .build();
+
+                    ui.rect("blur.showcase.ball.b")
+                        .x(glassX + 144.0f)
+                        .y(22.0f)
+                        .size(72.0f, 72.0f)
+                        .color({0.94f, 0.28f, 0.58f, 0.66f})
+                        .radius(36.0f)
+                        .build();
+
+                    ui.rect("blur.showcase.ball.c")
+                        .x(glassX + 258.0f)
+                        .y(68.0f)
+                        .size(64.0f, 64.0f)
+                        .color({0.96f, 0.74f, 0.24f, 0.66f})
+                        .radius(32.0f)
+                        .build();
+
+                    ui.rect("blur.showcase.glass")
+                        .x(glassX)
+                        .y(36.0f)
+                        .size(360.0f, 96.0f)
+                        .color({0.88f, 0.96f, 1.0f, 0.26f})
+                        .radius(24.0f)
+                        .blur(28.0f)
+                        .border(1.0f, {1.0f, 1.0f, 1.0f, 0.42f})
+                        .shadow(24.0f, 0.0f, 10.0f, {0.0f, 0.0f, 0.0f, 0.24f})
+                        .build();
+
+                    ui.text("blur.showcase.title")
+                        .x(glassX + 38.0f)
+                        .y(58.0f)
+                        .size(284.0f, 34.0f)
+                        .text("Backdrop Blur")
+                        .fontSize(24.0f)
+                        .lineHeight(32.0f)
+                        .color({0.94f, 0.98f, 1.0f, 1.0f})
+                        .horizontalAlign(core::HorizontalAlign::Center)
+                        .build();
+
+                    ui.text("blur.showcase.note")
+                        .x(glassX + 38.0f)
+                        .y(92.0f)
+                        .size(284.0f, 28.0f)
+                        .text(".blur(28.0f)")
+                        .fontSize(18.0f)
+                        .lineHeight(24.0f)
+                        .color({0.78f, 0.88f, 1.0f, 0.92f})
+                        .horizontalAlign(core::HorizontalAlign::Center)
+                        .build();
+                });
+        });
+}
+
 void rectGallery(core::dsl::Ui& ui, float width) {
-    header(ui, "Primitive Gallery", "Rect color, gradient, border, radius, shadow and opacity.", width);
+    header(ui, "Primitive Gallery", "Rect color, gradient, border, radius, shadow, blur and opacity.", width);
 
     ui.column("rect.gallery")
-        .size(width, 360.0f)
+        .size(width, 540.0f)
         .gap(22.0f)
         .content([&] {
             ui.row("rect.row.a")
@@ -143,6 +221,8 @@ void rectGallery(core::dsl::Ui& ui, float width) {
                             .opacity(0.62f);
                     });
                 });
+
+            blurShowcase(ui, width);
         });
 }
 

@@ -54,6 +54,12 @@ function(configure_opengl_app target_name)
             $<TARGET_FILE_DIR:${target_name}>
         )
     endif()
+
+    add_custom_command(TARGET ${target_name} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/assets
+        $<TARGET_FILE_DIR:${target_name}>/assets
+    )
 endfunction()
 
 file(GLOB APP_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/app/*.cpp")

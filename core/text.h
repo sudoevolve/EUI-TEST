@@ -4,7 +4,7 @@
 
 #include <memory>
 #include <string>
-#include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace core {
@@ -89,6 +89,8 @@ private:
 
     bool loadFont();
     bool ensureGlyph(unsigned int codepoint);
+    Glyph* findGlyph(unsigned int codepoint);
+    void cacheGlyph(unsigned int codepoint, const Glyph& glyph);
     void invalidateLayout();
     void rebuildLayout();
     std::vector<unsigned int> decodeUtf8(const std::string& text) const;
@@ -104,13 +106,13 @@ private:
     float visualScale_ = 1.0f;
     TextStyle style_;
     std::shared_ptr<std::vector<unsigned char>> fontData_;
-    void* fontInfoStorage_ = nullptr;
+    std::shared_ptr<void> fontInfoStorage_;
     float scale_ = 1.0f;
     float ascent_ = 0.0f;
     float descent_ = 0.0f;
     float lineGap_ = 0.0f;
 
-    std::unordered_map<unsigned int, Glyph> glyphs_;
+    std::vector<std::pair<unsigned int, Glyph>> glyphs_;
 
     std::vector<Line> lines_;
     Vec2 measuredSize_;

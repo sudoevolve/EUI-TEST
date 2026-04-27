@@ -1,3 +1,13 @@
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include "core/text.h"
 
 #include <glad/glad.h>
@@ -47,9 +57,158 @@ struct SharedTextAtlas {
     std::unordered_map<std::string, TextPrimitive::Glyph> glyphs;
 };
 
+struct SharedTextRenderResources {
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    GLuint shaderProgram = 0;
+    GLint windowSizeLocation = -1;
+    GLint colorLocation = -1;
+    GLint textureLocation = -1;
+    int references = 0;
+};
+
 SharedTextAtlas& sharedTextAtlas() {
     static SharedTextAtlas atlas;
     return atlas;
+}
+
+SharedTextRenderResources& sharedTextRenderResources() {
+    static SharedTextRenderResources resources;
+    return resources;
+}
+
+GLuint compileGlShader(GLenum type, const char* source) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &source, nullptr);
+    glCompileShader(shader);
+
+    GLint compiled = 0;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+    if (!compiled) {
+        glDeleteShader(shader);
+        return 0;
+    }
+
+    return shader;
+}
+
+bool createSharedTextRenderResources(SharedTextRenderResources& resources) {
+    const char* vertexSource =
+        "#version 330 core\n"
+        "layout(location = 0) in vec2 aPos;\n"
+        "layout(location = 1) in vec2 aUv;\n"
+        "layout(location = 2) in float aUseSdf;\n"
+        "uniform vec2 uWindowSize;\n"
+        "out vec2 vUv;\n"
+        "out float vUseSdf;\n"
+        "void main() {\n"
+        "    vUv = aUv;\n"
+        "    vUseSdf = aUseSdf;\n"
+        "    vec2 ndc = vec2((aPos.x / uWindowSize.x) * 2.0 - 1.0,\n"
+        "                    1.0 - (aPos.y / uWindowSize.y) * 2.0);\n"
+        "    gl_Position = vec4(ndc, 0.0, 1.0);\n"
+        "}\n";
+
+    const char* fragmentSource =
+        "#version 330 core\n"
+        "in vec2 vUv;\n"
+        "in float vUseSdf;\n"
+        "out vec4 FragColor;\n"
+        "uniform sampler2D uAtlas;\n"
+        "uniform vec4 uColor;\n"
+        "void main() {\n"
+        "    float sdf = texture(uAtlas, vUv).r;\n"
+        "    float width = fwidth(sdf);\n"
+        "    float alpha = vUseSdf > 0.5 ? smoothstep(0.5 - width, 0.5 + width, sdf) : sdf;\n"
+        "    if (alpha <= 0.0) discard;\n"
+        "    FragColor = vec4(uColor.rgb, uColor.a * alpha);\n"
+        "}\n";
+
+    GLuint vertexShader = compileGlShader(GL_VERTEX_SHADER, vertexSource);
+    GLuint fragmentShader = compileGlShader(GL_FRAGMENT_SHADER, fragmentSource);
+    if (!vertexShader || !fragmentShader) {
+        if (vertexShader) {
+            glDeleteShader(vertexShader);
+        }
+        if (fragmentShader) {
+            glDeleteShader(fragmentShader);
+        }
+        return false;
+    }
+
+    resources.shaderProgram = glCreateProgram();
+    glAttachShader(resources.shaderProgram, vertexShader);
+    glAttachShader(resources.shaderProgram, fragmentShader);
+    glLinkProgram(resources.shaderProgram);
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    GLint linked = 0;
+    glGetProgramiv(resources.shaderProgram, GL_LINK_STATUS, &linked);
+    if (!linked) {
+        glDeleteProgram(resources.shaderProgram);
+        resources.shaderProgram = 0;
+        return false;
+    }
+
+    resources.windowSizeLocation = glGetUniformLocation(resources.shaderProgram, "uWindowSize");
+    resources.colorLocation = glGetUniformLocation(resources.shaderProgram, "uColor");
+    resources.textureLocation = glGetUniformLocation(resources.shaderProgram, "uAtlas");
+
+    glGenVertexArrays(1, &resources.vao);
+    glGenBuffers(1, &resources.vbo);
+    glBindVertexArray(resources.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, resources.vbo);
+    glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_DYNAMIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 5, nullptr);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 5, reinterpret_cast<void*>(sizeof(float) * 2));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float) * 5, reinterpret_cast<void*>(sizeof(float) * 4));
+    glEnableVertexAttribArray(2);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    return resources.shaderProgram != 0 && resources.vao != 0 && resources.vbo != 0;
+}
+
+bool retainSharedTextRenderResources() {
+    SharedTextRenderResources& resources = sharedTextRenderResources();
+    ++resources.references;
+    if (resources.shaderProgram != 0) {
+        return true;
+    }
+
+    if (createSharedTextRenderResources(resources)) {
+        return true;
+    }
+
+    resources.references = std::max(0, resources.references - 1);
+    return false;
+}
+
+void releaseSharedTextRenderResources() {
+    SharedTextRenderResources& resources = sharedTextRenderResources();
+    resources.references = std::max(0, resources.references - 1);
+    if (resources.references > 0) {
+        return;
+    }
+
+    if (resources.vbo) {
+        glDeleteBuffers(1, &resources.vbo);
+        resources.vbo = 0;
+    }
+    if (resources.vao) {
+        glDeleteVertexArrays(1, &resources.vao);
+        resources.vao = 0;
+    }
+    if (resources.shaderProgram) {
+        glDeleteProgram(resources.shaderProgram);
+        resources.shaderProgram = 0;
+    }
+    resources.windowSizeLocation = -1;
+    resources.colorLocation = -1;
+    resources.textureLocation = -1;
 }
 
 bool retainSharedTextAtlas() {
@@ -100,9 +259,31 @@ std::string existingPath(const std::filesystem::path& path) {
     return {};
 }
 
+std::filesystem::path executableDirectory() {
+#ifdef _WIN32
+    std::vector<char> buffer(MAX_PATH);
+    DWORD length = 0;
+    while (true) {
+        length = GetModuleFileNameA(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (length == 0) {
+            return {};
+        }
+        if (length < buffer.size() - 1) {
+            break;
+        }
+        buffer.resize(buffer.size() * 2);
+    }
+    return std::filesystem::path(buffer.data()).parent_path();
+#else
+    return {};
+#endif
+}
+
 std::string resolveProjectAssetPath(const std::string& filename) {
     const std::filesystem::path sourceRoot = std::filesystem::path(__FILE__).parent_path().parent_path();
+    const std::filesystem::path exeDir = executableDirectory();
     const std::filesystem::path candidates[] = {
+        exeDir / "assets" / filename,
         std::filesystem::path("assets") / filename,
         std::filesystem::path("..") / "assets" / filename,
         std::filesystem::path("..") / ".." / "assets" / filename,
@@ -124,7 +305,10 @@ std::string resolveFontFilePath(const std::string& path) {
     }
 
     const std::filesystem::path sourceRoot = std::filesystem::path(__FILE__).parent_path().parent_path();
+    const std::filesystem::path exeDir = executableDirectory();
     const std::filesystem::path candidates[] = {
+        exeDir / "assets" / raw.filename(),
+        exeDir / raw,
         std::filesystem::path("assets") / raw.filename(),
         std::filesystem::path("..") / "assets" / raw.filename(),
         std::filesystem::path("..") / ".." / "assets" / raw.filename(),
@@ -191,102 +375,86 @@ bool loadFontFace(const std::string& path, float fontSize, bool useSdf, FontFace
     return true;
 }
 
+std::string fontStackCacheKey(const std::string& fontPath, float fontSize) {
+    return fontPath + "#" + std::to_string(static_cast<int>(std::round(fontSize * 64.0f)));
+}
+
+std::shared_ptr<FontInfoHolder> loadSharedFontStack(const std::string& fontPath, float fontSize) {
+    static std::unordered_map<std::string, std::weak_ptr<FontInfoHolder>> cache;
+
+    const std::string cacheKey = fontStackCacheKey(fontPath, fontSize);
+    if (auto cached = cache[cacheKey].lock()) {
+        return cached;
+    }
+
+    auto holder = std::make_shared<FontInfoHolder>();
+
+    FontFace primary;
+    if (!loadFontFace(fontPath, fontSize, !isFontAwesomePath(fontPath), primary)) {
+        return {};
+    }
+
+    holder->faces.push_back(std::move(primary));
+
+    const std::string fallbackPaths[] = {
+        resolveProjectAssetPath("Font Awesome 7 Free-Solid-900.otf"),
+        resolveProjectAssetPath("YouSheBiaoTiHei-2.ttf"),
+#ifdef _WIN32
+        std::string("C:/Windows/Fonts/msyh.ttc")
+#else
+        std::string("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+#endif
+    };
+
+    for (const std::string& fallbackPath : fallbackPaths) {
+        if (fallbackPath.empty() || fallbackPath == fontPath) {
+            continue;
+        }
+
+        FontFace fallback;
+        if (loadFontFace(fallbackPath, fontSize, !isFontAwesomePath(fallbackPath), fallback)) {
+            holder->faces.push_back(std::move(fallback));
+        }
+    }
+
+    cache[cacheKey] = holder;
+    return holder;
+}
+
 } // namespace
 
 bool TextPrimitive::initialize() {
-    const char* vertexSource =
-        "#version 330 core\n"
-        "layout(location = 0) in vec2 aPos;\n"
-        "layout(location = 1) in vec2 aUv;\n"
-        "layout(location = 2) in float aUseSdf;\n"
-        "uniform vec2 uWindowSize;\n"
-        "out vec2 vUv;\n"
-        "out float vUseSdf;\n"
-        "void main() {\n"
-        "    vUv = aUv;\n"
-        "    vUseSdf = aUseSdf;\n"
-        "    vec2 ndc = vec2((aPos.x / uWindowSize.x) * 2.0 - 1.0,\n"
-        "                    1.0 - (aPos.y / uWindowSize.y) * 2.0);\n"
-        "    gl_Position = vec4(ndc, 0.0, 1.0);\n"
-        "}\n";
-
-    const char* fragmentSource =
-        "#version 330 core\n"
-        "in vec2 vUv;\n"
-        "in float vUseSdf;\n"
-        "out vec4 FragColor;\n"
-        "uniform sampler2D uAtlas;\n"
-        "uniform vec4 uColor;\n"
-        "void main() {\n"
-        "    float sdf = texture(uAtlas, vUv).r;\n"
-        "    float width = fwidth(sdf);\n"
-        "    float alpha = vUseSdf > 0.5 ? smoothstep(0.5 - width, 0.5 + width, sdf) : sdf;\n"
-        "    if (alpha <= 0.0) discard;\n"
-        "    FragColor = vec4(uColor.rgb, uColor.a * alpha);\n"
-        "}\n";
-
-    GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSource);
-    GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
-    if (!vertexShader || !fragmentShader) {
+    if (!retainSharedTextRenderResources()) {
         return false;
     }
-
-    shaderProgram_ = glCreateProgram();
-    glAttachShader(shaderProgram_, vertexShader);
-    glAttachShader(shaderProgram_, fragmentShader);
-    glLinkProgram(shaderProgram_);
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
-
-    GLint linked = 0;
-    glGetProgramiv(shaderProgram_, GL_LINK_STATUS, &linked);
-    if (!linked) {
-        glDeleteProgram(shaderProgram_);
-        shaderProgram_ = 0;
-        return false;
-    }
-
-    windowSizeLocation_ = glGetUniformLocation(shaderProgram_, "uWindowSize");
-    colorLocation_ = glGetUniformLocation(shaderProgram_, "uColor");
-    textureLocation_ = glGetUniformLocation(shaderProgram_, "uAtlas");
-
-    glGenVertexArrays(1, &vao_);
-    glGenBuffers(1, &vbo_);
-    glBindVertexArray(vao_);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-    glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_DYNAMIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 5, nullptr);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 5, reinterpret_cast<void*>(sizeof(float) * 2));
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float) * 5, reinterpret_cast<void*>(sizeof(float) * 4));
-    glEnableVertexAttribArray(2);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
 
     if (!loadFont() || !retainSharedTextAtlas()) {
-        destroy();
+        releaseSharedTextRenderResources();
         return false;
     }
+
+    const SharedTextRenderResources& resources = sharedTextRenderResources();
+    vao_ = resources.vao;
+    vbo_ = resources.vbo;
+    shaderProgram_ = resources.shaderProgram;
+    windowSizeLocation_ = resources.windowSizeLocation;
+    colorLocation_ = resources.colorLocation;
+    textureLocation_ = resources.textureLocation;
     return true;
 }
 
 void TextPrimitive::destroy() {
-    releaseSharedTextAtlas();
-    if (vbo_) {
-        glDeleteBuffers(1, &vbo_);
-        vbo_ = 0;
-    }
-    if (vao_) {
-        glDeleteVertexArrays(1, &vao_);
-        vao_ = 0;
-    }
     if (shaderProgram_) {
-        glDeleteProgram(shaderProgram_);
-        shaderProgram_ = 0;
+        releaseSharedTextAtlas();
+        releaseSharedTextRenderResources();
     }
-    delete static_cast<FontInfoHolder*>(fontInfoStorage_);
-    fontInfoStorage_ = nullptr;
+    vbo_ = 0;
+    vao_ = 0;
+    shaderProgram_ = 0;
+    windowSizeLocation_ = -1;
+    colorLocation_ = -1;
+    textureLocation_ = -1;
+    fontInfoStorage_.reset();
 }
 
 void TextPrimitive::setPosition(float x, float y) {
@@ -405,7 +573,8 @@ void TextPrimitive::render(int windowWidth, int windowHeight) {
         rebuildLayout();
     }
 
-    std::vector<float> vertices;
+    static thread_local std::vector<float> vertices;
+    vertices.clear();
     const float lineHeight = style_.lineHeight > 0.0f ? style_.lineHeight : style_.fontSize * 1.2f;
     float blockYOffset = 0.0f;
     if (style_.verticalAlign == VerticalAlign::Center) {
@@ -490,43 +659,13 @@ void TextPrimitive::render(int windowWidth, int windowHeight) {
 
 bool TextPrimitive::loadFont() {
     const std::string fontPath = resolveFontPath(style_.fontFamily, style_.fontWeight);
-    auto* holder = static_cast<FontInfoHolder*>(fontInfoStorage_);
-    if (!holder) {
-        holder = new FontInfoHolder();
-        fontInfoStorage_ = holder;
-    }
-
-    holder->faces.clear();
-
-    FontFace primary;
-    if (!loadFontFace(fontPath, style_.fontSize, !isFontAwesomePath(fontPath), primary)) {
+    auto holder = loadSharedFontStack(fontPath, style_.fontSize);
+    if (!holder || holder->faces.empty()) {
         return false;
     }
 
-    fontData_ = primary.data;
-    holder->faces.push_back(std::move(primary));
-
-    const std::string fallbackPaths[] = {
-        resolveFontPath("FontAwesome", 400),
-        resolveFontPath("YouSheBiaoTiHei", 400),
-#ifdef _WIN32
-        resolveFontPath("Microsoft YaHei", 400)
-#else
-        resolveFontPath("", 400)
-#endif
-    };
-
-    for (const std::string& fallbackPath : fallbackPaths) {
-        if (fallbackPath.empty() || fallbackPath == fontPath) {
-            continue;
-        }
-
-        FontFace fallback;
-        if (loadFontFace(fallbackPath, style_.fontSize, !isFontAwesomePath(fallbackPath), fallback)) {
-            holder->faces.push_back(std::move(fallback));
-        }
-    }
-
+    fontInfoStorage_ = holder;
+    fontData_ = holder->faces.front().data;
     scale_ = holder->faces.front().scale;
     ascent_ = holder->faces.front().ascent;
     descent_ = holder->faces.front().descent;
@@ -539,7 +678,7 @@ bool TextPrimitive::loadFont() {
 }
 
 bool TextPrimitive::ensureGlyph(unsigned int codepoint) {
-    if (glyphs_.find(codepoint) != glyphs_.end()) {
+    if (findGlyph(codepoint)) {
         return true;
     }
 
@@ -547,7 +686,7 @@ bool TextPrimitive::ensureGlyph(unsigned int codepoint) {
         return false;
     }
 
-    auto* holder = static_cast<FontInfoHolder*>(fontInfoStorage_);
+    auto holder = std::static_pointer_cast<FontInfoHolder>(fontInfoStorage_);
     if (!holder || holder->faces.empty()) {
         return false;
     }
@@ -564,7 +703,7 @@ bool TextPrimitive::ensureGlyph(unsigned int codepoint) {
         if (stbtt_FindGlyphIndex(&face->info, static_cast<int>(codepoint)) == 0) {
             Glyph missingGlyph;
             missingGlyph.advance = style_.fontSize * 0.5f;
-            glyphs_[codepoint] = missingGlyph;
+            cacheGlyph(codepoint, missingGlyph);
             return true;
         }
     }
@@ -578,14 +717,14 @@ bool TextPrimitive::ensureGlyph(unsigned int codepoint) {
     glyph.useSdf = face->useSdf;
 
     if (codepoint == ' ' || codepoint == '\t') {
-        glyphs_[codepoint] = glyph;
+        cacheGlyph(codepoint, glyph);
         return true;
     }
 
     const std::string cacheKey = glyphCacheKey(*face, style_.fontSize, codepoint);
     SharedTextAtlas& atlas = sharedTextAtlas();
     if (const auto cached = atlas.glyphs.find(cacheKey); cached != atlas.glyphs.end()) {
-        glyphs_[codepoint] = cached->second;
+        cacheGlyph(codepoint, cached->second);
         return true;
     }
 
@@ -604,7 +743,7 @@ bool TextPrimitive::ensureGlyph(unsigned int codepoint) {
         } else if (bitmap) {
             stbtt_FreeBitmap(bitmap, nullptr);
         }
-        glyphs_[codepoint] = glyph;
+        cacheGlyph(codepoint, glyph);
         return true;
     }
 
@@ -636,7 +775,7 @@ bool TextPrimitive::ensureGlyph(unsigned int codepoint) {
     glyph.u1 = static_cast<float>(atlas.x + width) / static_cast<float>(atlas.width);
     glyph.v1 = static_cast<float>(atlas.y + height) / static_cast<float>(atlas.height);
     atlas.glyphs[cacheKey] = glyph;
-    glyphs_[codepoint] = glyph;
+    cacheGlyph(codepoint, glyph);
 
     atlas.x += width + 1;
     atlas.rowHeight = std::max(atlas.rowHeight, height);
@@ -647,6 +786,23 @@ bool TextPrimitive::ensureGlyph(unsigned int codepoint) {
         stbtt_FreeBitmap(bitmap, nullptr);
     }
     return true;
+}
+
+TextPrimitive::Glyph* TextPrimitive::findGlyph(unsigned int codepoint) {
+    for (auto& item : glyphs_) {
+        if (item.first == codepoint) {
+            return &item.second;
+        }
+    }
+    return nullptr;
+}
+
+void TextPrimitive::cacheGlyph(unsigned int codepoint, const Glyph& glyph) {
+    if (Glyph* existing = findGlyph(codepoint)) {
+        *existing = glyph;
+        return;
+    }
+    glyphs_.push_back({codepoint, glyph});
 }
 
 void TextPrimitive::invalidateLayout() {
@@ -710,7 +866,10 @@ float TextPrimitive::glyphAdvance(unsigned int codepoint) {
     if (!ensureGlyph(codepoint)) {
         return style_.fontSize * 0.5f;
     }
-    return glyphs_[codepoint].advance;
+    if (const Glyph* glyph = findGlyph(codepoint)) {
+        return glyph->advance;
+    }
+    return style_.fontSize * 0.5f;
 }
 
 void TextPrimitive::appendCodepointToLine(Line& line, unsigned int codepoint, float& cursorX) {
@@ -718,11 +877,14 @@ void TextPrimitive::appendCodepointToLine(Line& line, unsigned int codepoint, fl
         return;
     }
 
-    const Glyph& glyph = glyphs_[codepoint];
-    if (codepoint != ' ' && codepoint != '\t') {
-        line.glyphs.push_back({glyph, cursorX, 0.0f});
+    const Glyph* glyph = findGlyph(codepoint);
+    if (!glyph) {
+        return;
     }
-    cursorX += glyph.advance;
+    if (codepoint != ' ' && codepoint != '\t') {
+        line.glyphs.push_back({*glyph, cursorX, 0.0f});
+    }
+    cursorX += glyph->advance;
     line.width = cursorX;
 }
 

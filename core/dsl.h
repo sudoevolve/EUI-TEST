@@ -70,6 +70,7 @@ struct Element {
     Shadow shadow;
     Transform transform;
     float radius = 0.0f;
+    float blur = 0.0f;
     float opacity = 1.0f;
 
     std::string text;
@@ -305,6 +306,11 @@ public:
 
     Derived& shadow(const Shadow& value) {
         this->element_->shadow = value;
+        return this->self();
+    }
+
+    Derived& blur(float value) {
+        this->element_->blur = std::max(0.0f, value);
         return this->self();
     }
 
@@ -592,6 +598,7 @@ private:
         node->setWidth(element.width);
         node->setHeight(element.height);
         node->setMargin(element.margin);
+        node->setPosition(element.x, element.y, element.hasX, element.hasY);
         node->setSpacing(element.spacing);
         node->setMainAlign(element.mainAlign);
         node->setCrossAlign(element.crossAlign);

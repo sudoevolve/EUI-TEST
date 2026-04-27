@@ -85,6 +85,12 @@ public:
     void setSpacing(float spacing) { spacing_ = spacing; }
     void setMainAlign(Align align) { mainAlign_ = align; }
     void setCrossAlign(Align align) { crossAlign_ = align; }
+    void setPosition(float x, float y, bool hasX, bool hasY) {
+        x_ = x;
+        y_ = y;
+        hasX_ = hasX;
+        hasY_ = hasY;
+    }
 
     LayoutType type() const { return type_; }
     const SizeValue& widthValue() const { return width_; }
@@ -263,8 +269,8 @@ private:
         for (const auto& child : children_) {
             const float childOuterWidth = outerWidth(*child);
             const float childOuterHeight = outerHeight(*child);
-            const float childX = frame_.x + crossOffset(frame_.width, childOuterWidth) + child->margin_.left;
-            const float childY = frame_.y + mainOffset(frame_.height, childOuterHeight) + child->margin_.top;
+            const float childX = frame_.x + (child->hasX_ ? child->x_ : crossOffset(frame_.width, childOuterWidth)) + child->margin_.left;
+            const float childY = frame_.y + (child->hasY_ ? child->y_ : mainOffset(frame_.height, childOuterHeight)) + child->margin_.top;
             child->layout(childX, childY);
         }
     }
@@ -273,6 +279,10 @@ private:
     SizeValue width_ = SizeValue::wrapContent();
     SizeValue height_ = SizeValue::wrapContent();
     EdgeInsets margin_;
+    bool hasX_ = false;
+    bool hasY_ = false;
+    float x_ = 0.0f;
+    float y_ = 0.0f;
     float spacing_ = 0.0f;
     Align mainAlign_ = Align::START;
     Align crossAlign_ = Align::START;
