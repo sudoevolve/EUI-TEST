@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -65,11 +66,13 @@ std::string groupNumber(std::string text) {
 }
 
 double value() {
-    try {
-        return entry == "Error" ? 0.0 : std::stod(entry);
-    } catch (...) {
+    if (entry == "Error") {
         return 0.0;
     }
+
+    char* end = nullptr;
+    const double parsed = std::strtod(entry.c_str(), &end);
+    return end && *end == '\0' ? parsed : 0.0;
 }
 
 std::string opText(char op) {
