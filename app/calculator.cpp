@@ -3,6 +3,7 @@
 #include "core/dsl.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
 #include <cstdlib>
 #include <iomanip>
@@ -71,8 +72,12 @@ double value() {
     }
 
     char* end = nullptr;
+    errno = 0;
     const double parsed = std::strtod(entry.c_str(), &end);
-    return end && *end == '\0' ? parsed : 0.0;
+    if (end == entry.c_str() || *end != '\0' || errno == ERANGE || !std::isfinite(parsed)) {
+        return 0.0;
+    }
+    return parsed;
 }
 
 std::string opText(char op) {
