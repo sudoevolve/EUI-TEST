@@ -625,13 +625,11 @@ void composeCityCard(core::dsl::Ui& ui, float x, float y, float width, float hei
         .build();
 }
 
-void composeCards(core::dsl::Ui& ui, float x, float y, float width, float screenHeight, const Palette& p) {
+void composeCards(core::dsl::Ui& ui, float x, float y, float width, const Palette& p) {
     const int count = static_cast<int>(state.favorites.size());
     const int columns = width < 860.0f ? 2 : 4;
-    const int rows = std::max(1, (count + columns - 1) / columns);
     const float gap = 12.0f;
-    const float available = std::max(108.0f, screenHeight - y - 24.0f);
-    const float cardH = std::clamp((available - gap * static_cast<float>(rows - 1)) / static_cast<float>(rows), 96.0f, 140.0f);
+    const float cardH = width < 860.0f ? 132.0f : 140.0f;
     const float cardW = (width - gap * static_cast<float>(columns - 1)) / static_cast<float>(columns);
 
     for (int index = 0; index < count; ++index) {
@@ -654,8 +652,8 @@ const DslAppConfig& dslAppConfig() {
         "Clock",
         "clock",
         {0.965f, 0.966f, 0.970f, 1.0f},
-        1500,
-        1000,
+        1600,
+        1080,
         false,
         90.0
     };
@@ -705,7 +703,7 @@ void compose(core::dsl::Ui& ui, const core::dsl::Screen& screen) {
                 .build();
 
             composeCityTitle(ui, contentX, cityY, contentW, city, p);
-            composeCards(ui, contentX, cardsY, contentW, screen.height, p);
+            composeCards(ui, contentX, cardsY, contentW, p);
 
             ui.stack("tick")
                 .size(0.0f, 0.0f)

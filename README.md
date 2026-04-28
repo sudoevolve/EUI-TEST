@@ -16,6 +16,7 @@ EUI-NEO is a C++17, OpenGL, and GLFW declarative UI experiment. Pages describe s
 | --- | --- |
 | ![preview 1](docs/pic/1.jpg) | ![preview 2](docs/pic/2.jpg) |
 | ![preview 3](docs/pic/3.jpg) | ![preview 4](docs/pic/4.jpg) |
+| ![example 1](docs/pic/示例1.jpg) | ![example 2](docs/pic/示例2.jpg) |
 
 ## Quick Start
 
