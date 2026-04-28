@@ -60,6 +60,11 @@ public:
     ButtonBuilder& radius(float value) { style_.radius = value; return *this; }
     ButtonBuilder& rounding(float value) { return radius(value); }
     ButtonBuilder& opacity(float value) { style_.opacity = std::clamp(value, 0.0f, 1.0f); return *this; }
+    ButtonBuilder& disabled(bool value = true) { disabled_ = value; return *this; }
+    ButtonBuilder& enabled(bool value = true) { disabled_ = !value; return *this; }
+    ButtonBuilder& translate(float x, float y) { translateX_ = x; translateY_ = y; return *this; }
+    ButtonBuilder& translateX(float value) { translateX_ = value; return *this; }
+    ButtonBuilder& translateY(float value) { translateY_ = value; return *this; }
     ButtonBuilder& pressScale(float value) { style_.pressScale = std::clamp(value, 0.80f, 1.0f); return *this; }
     ButtonBuilder& border(float width, const core::Color& color) { style_.border = {width, color}; return *this; }
     ButtonBuilder& shadow(float blur, float offsetX, float offsetY, const core::Color& color) {
@@ -78,6 +83,10 @@ public:
         return *this;
     }
     ButtonBuilder& onClick(std::function<void()> callback) { onClick_ = std::move(callback); return *this; }
+    ButtonBuilder& onContextMenu(std::function<void(const core::PointerEvent&, const core::Rect&)> callback) {
+        onContextMenu_ = std::move(callback);
+        return *this;
+    }
 
     void build() {
         const float w = width_ * scale_;
@@ -88,9 +97,6 @@ public:
         const float iconWidth = hasIcon ? iconFont * 1.15f : 0.0f;
         const float gap = hasIcon ? std::max(6.0f * scale_, h * 0.12f) : 0.0f;
         const float labelWidth = hasIcon ? std::max(0.0f, w - iconWidth - gap - 32.0f * scale_) : w;
-        const float iconY = std::max(0.0f, (h - iconFont) * 0.5f);
-        const float textY = std::max(0.0f, (h - font) * 0.5f);
-
         core::Border border = style_.border;
         border.width *= scale_;
 
@@ -99,6 +105,10 @@ public:
         shadow.offset.y *= scale_;
         shadow.blur *= scale_;
         shadow.spread *= scale_;
+        core::Color textColor = style_.text;
+        core::Color iconColor = style_.icon;
+        textColor.a *= style_.opacity;
+        iconColor.a *= style_.opacity;
 
         ui_.stack(id_)
             .size(w, h)
@@ -111,8 +121,11 @@ public:
                     .opacity(style_.opacity)
                     .border(border)
                     .shadow(shadow)
+                    .translate(translateX_, translateY_)
                     .transition(transition_)
+                    .disabled(disabled_)
                     .onClick(onClick_)
+                    .onContextMenu(onContextMenu_)
                     .build();
 
                 ui_.row(id_ + ".content")
@@ -123,26 +136,26 @@ public:
                     .content([&] {
                         if (hasIcon) {
                             ui_.text(id_ + ".icon")
-                                .y(iconY)
-                                .size(iconWidth, iconFont)
+                                .size(iconWidth, h)
                                 .icon(icon_)
                                 .fontSize(iconFont)
                                 .lineHeight(iconFont)
-                                .color(style_.icon)
+                                .color(iconColor)
                                 .horizontalAlign(core::HorizontalAlign::Center)
-                                .verticalAlign(core::VerticalAlign::Top)
+                                .verticalAlign(core::VerticalAlign::Center)
+                                .transition(transition_)
                                 .build();
                         }
 
                         ui_.text(id_ + ".text")
-                            .y(textY)
-                            .size(labelWidth, font)
+                            .size(labelWidth, h)
                             .text(text_)
                             .fontSize(font)
                             .lineHeight(font)
-                            .color(style_.text)
+                            .color(textColor)
                             .horizontalAlign(hasIcon ? core::HorizontalAlign::Left : core::HorizontalAlign::Center)
-                            .verticalAlign(core::VerticalAlign::Top)
+                            .verticalAlign(core::VerticalAlign::Center)
+                            .transition(transition_)
                             .build();
                     })
                     .build();
@@ -158,11 +171,15 @@ private:
     ButtonStyle style_;
     core::Transition transition_;
     std::function<void()> onClick_;
+    std::function<void(const core::PointerEvent&, const core::Rect&)> onContextMenu_;
     float width_ = 240.0f;
     float height_ = 70.0f;
     float scale_ = 1.0f;
     float fontSize_ = 0.0f;
     float iconSize_ = 0.0f;
+    float translateX_ = 0.0f;
+    float translateY_ = 0.0f;
+    bool disabled_ = false;
 };
 
 inline ButtonBuilder button(core::dsl::Ui& ui, const std::string& id) {

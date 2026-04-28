@@ -10,6 +10,7 @@
 #include "core/image.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cmath>
 #include <functional>
 #include <memory>
@@ -25,6 +26,8 @@ class Runtime {
         bool active = false;
         Vec2 origin = {0.0f, 0.0f};
         float scale = 1.0f;
+        Vec2 translate = {0.0f, 0.0f};
+        float opacity = 1.0f;
     };
 
     struct ElementSnapshot {
@@ -89,6 +92,7 @@ public:
         animating_ = false;
         needsCompose_ = false;
         wantsHandCursor_ = false;
+        markTimersUnseen();
         if (ImagePrimitive::consumeRemoteImageReady()) {
             fullRedraw_ = true;
             needsRender_ = true;
@@ -101,6 +105,7 @@ public:
         const std::string capturedId = capturedInteractionId();
         const std::string hoverTargetId = !capturedId.empty() ? capturedId : hitTestInteractive(event, dpiScale);
         updateElementTree(event, deltaSeconds, dpiScale, hoverTargetId);
+        updateDependentVisualDirtyRegions();
 
         if (scrollEvent.active()) {
             updateScroll(scrollEvent, hitTestScrollable(event, dpiScale));
@@ -108,6 +113,7 @@ public:
         if (keyboardEvent.hasInput()) {
             updateTextInput(keyboardEvent);
         }
+        releaseUnseenTimers();
         applyCursor(window);
 
         promoteBackdropBlurDirtyRegions();
@@ -185,6 +191,11 @@ public:
                 item.second.primitive->destroy();
             }
         }
+        for (auto& item : polygons_) {
+            if (item.second.initialized) {
+                item.second.primitive->destroy();
+            }
+        }
         for (auto& item : texts_) {
             if (item.second.initialized) {
                 item.second.primitive->destroy();
@@ -196,9 +207,13 @@ public:
             }
         }
         rects_.clear();
+        polygons_.clear();
         texts_.clear();
         images_.clear();
         interactions_.clear();
+        layouts_.clear();
+        timers_.clear();
+        dependentVisualStates_.clear();
         frameTargets_.clear();
         elementStructure_.clear();
         ImagePrimitive::releaseCachedTextures();
@@ -222,6 +237,19 @@ private:
         AnimatedValue<Border> border;
         AnimatedValue<Shadow> shadow;
         AnimatedValue<Transform> transform;
+    };
+
+    struct PolygonInstance {
+        std::unique_ptr<PolygonPrimitive> primitive = std::make_unique<PolygonPrimitive>();
+        InteractionState interaction;
+        bool initialized = false;
+        SmoothedValue<float> hoverBlend;
+        SmoothedValue<float> pressBlend;
+        AnimatedValue<LayoutRect> frame;
+        AnimatedValue<Color> color;
+        AnimatedValue<float> opacity;
+        AnimatedValue<Transform> transform;
+        std::vector<Vec2> points;
     };
 
     struct TextInstance {
@@ -256,6 +284,25 @@ private:
 
     struct InteractionInstance {
         InteractionState state;
+    };
+
+    struct LayoutInstance {
+        AnimatedValue<Transform> transform;
+        AnimatedValue<float> opacity;
+    };
+
+    struct TimerInstance {
+        float seconds = 0.0f;
+        float elapsed = 0.0f;
+        bool seen = false;
+        bool active = false;
+    };
+
+    struct DependentVisualState {
+        Rect rect;
+        float opacity = 1.0f;
+        float scale = 1.0f;
+        bool seen = false;
     };
 
     struct LogicalDirtyRect {
@@ -523,8 +570,8 @@ private:
             return point;
         }
         return {
-            transform.origin.x + (point.x - transform.origin.x) * transform.scale,
-            transform.origin.y + (point.y - transform.origin.y) * transform.scale
+            transform.origin.x + (point.x - transform.origin.x) * transform.scale + transform.translate.x,
+            transform.origin.y + (point.y - transform.origin.y) * transform.scale + transform.translate.y
         };
     }
 
@@ -563,8 +610,10 @@ private:
 
     static bool isRectAnimating(const Element& element, const RectInstance& instance) {
         const bool interactive = element.interactive && !element.disabled;
-        return instance.hoverBlend.isMovingTo(interactive && instance.interaction.hover ? 1.0f : 0.0f) ||
-               instance.pressBlend.isMovingTo(interactive && instance.interaction.pressed ? 1.0f : 0.0f) ||
+        const bool stateColorsVisible = element.hasStateColors &&
+            (!closeEnough(element.color, element.hoverColor) || !closeEnough(element.color, element.pressedColor));
+        return instance.hoverBlend.isMovingTo(interactive && stateColorsVisible && instance.interaction.hover ? 1.0f : 0.0f) ||
+               instance.pressBlend.isMovingTo(interactive && stateColorsVisible && instance.interaction.pressed ? 1.0f : 0.0f) ||
                instance.frame.isActive() ||
                instance.color.isActive() ||
                instance.radius.isActive() ||
@@ -572,6 +621,18 @@ private:
                instance.opacity.isActive() ||
                instance.border.isActive() ||
                instance.shadow.isActive() ||
+               instance.transform.isActive();
+    }
+
+    static bool isPolygonAnimating(const Element& element, const PolygonInstance& instance) {
+        const bool interactive = element.interactive && !element.disabled;
+        const bool stateColorsVisible = element.hasStateColors &&
+            (!closeEnough(element.color, element.hoverColor) || !closeEnough(element.color, element.pressedColor));
+        return instance.hoverBlend.isMovingTo(interactive && stateColorsVisible && instance.interaction.hover ? 1.0f : 0.0f) ||
+               instance.pressBlend.isMovingTo(interactive && stateColorsVisible && instance.interaction.pressed ? 1.0f : 0.0f) ||
+               instance.frame.isActive() ||
+               instance.color.isActive() ||
+               instance.opacity.isActive() ||
                instance.transform.isActive();
     }
 
@@ -590,6 +651,11 @@ private:
                instance.primitive->hasPendingLoad();
     }
 
+    static bool isLayoutAnimating(const LayoutInstance& instance) {
+        return instance.transform.isActive() ||
+               instance.opacity.isActive();
+    }
+
     static bool shouldAnimate(const Element& element, AnimProperty property) {
         return element.transition.enabled && hasAnimProperty(element.transition.properties, property);
     }
@@ -598,6 +664,18 @@ private:
         return element.transition.enabled &&
                hasAnimProperty(element.transition.properties, AnimProperty::Frame) &&
                element.explicitFrameAnimation;
+    }
+
+    static bool samePoints(const std::vector<Vec2>& left, const std::vector<Vec2>& right) {
+        if (left.size() != right.size()) {
+            return false;
+        }
+        for (std::size_t index = 0; index < left.size(); ++index) {
+            if (!closeEnough(left[index], right[index])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     bool updateFrameTarget(const Element& element) {
@@ -630,9 +708,16 @@ private:
                            bool ancestorFrameChanged) {
         const bool frameTargetChanged = updateFrameTarget(element);
         updateInteraction(element, event, dpiScale, hoverTargetId);
+        updateTimer(element, deltaSeconds);
 
-        if (element.kind == ElementKind::Rect) {
+        if (element.kind == ElementKind::Row ||
+            element.kind == ElementKind::Column ||
+            element.kind == ElementKind::Stack) {
+            updateLayoutElement(element, deltaSeconds);
+        } else if (element.kind == ElementKind::Rect) {
             updateRect(element, deltaSeconds, dpiScale, ancestorFrameChanged);
+        } else if (element.kind == ElementKind::Polygon) {
+            updatePolygon(element, deltaSeconds, ancestorFrameChanged);
         } else if (element.kind == ElementKind::Text) {
             updateText(element, deltaSeconds, ancestorFrameChanged);
         } else if (element.kind == ElementKind::Image) {
@@ -650,6 +735,10 @@ private:
         return rects_.try_emplace(id).first->second;
     }
 
+    PolygonInstance& polygonInstance(const std::string& id) {
+        return polygons_.try_emplace(id).first->second;
+    }
+
     TextInstance& textInstance(const std::string& id) {
         return texts_.try_emplace(id).first->second;
     }
@@ -660,6 +749,30 @@ private:
 
     InteractionInstance& interactionInstance(const std::string& id) {
         return interactions_.try_emplace(id).first->second;
+    }
+
+    LayoutInstance& layoutInstance(const std::string& id) {
+        return layouts_.try_emplace(id).first->second;
+    }
+
+    TimerInstance& timerInstance(const std::string& id) {
+        return timers_.try_emplace(id).first->second;
+    }
+
+    void markTimersUnseen() {
+        for (auto& item : timers_) {
+            item.second.seen = false;
+        }
+    }
+
+    void releaseUnseenTimers() {
+        for (auto item = timers_.begin(); item != timers_.end(); ) {
+            if (!item->second.seen) {
+                item = timers_.erase(item);
+            } else {
+                ++item;
+            }
+        }
     }
 
     std::string capturedInteractionId() const {
@@ -725,7 +838,7 @@ private:
             return;
         }
 
-        if (predicate(element) && bounds.contains(event.x, event.y)) {
+        if (predicate(element) && hitContains(element, event, dpiScale, bounds)) {
             targetId = element.id;
         }
 
@@ -801,6 +914,23 @@ private:
             wantsHandCursor_ = true;
         }
 
+        if (enabled && topmostHover && event.rightPressedThisFrame && element.onContextMenu) {
+            PointerEvent logicalEvent = event;
+            logicalEvent.x /= dpiScale;
+            logicalEvent.y /= dpiScale;
+            logicalEvent.deltaX /= dpiScale;
+            logicalEvent.deltaY /= dpiScale;
+            const Rect logicalBounds{
+                bounds.x / dpiScale,
+                bounds.y / dpiScale,
+                bounds.width / dpiScale,
+                bounds.height / dpiScale
+            };
+            element.onContextMenu(logicalEvent, logicalBounds);
+            needsCompose_ = true;
+            needsRender_ = true;
+        }
+
         if (enabled && instance.state.pressStarted && element.onPress) {
             element.onPress(event, bounds);
             needsCompose_ = true;
@@ -827,24 +957,120 @@ private:
         }
     }
 
+    static bool polygonContains(const Element& element, double pointX, double pointY, float dpiScale, const Rect& bounds) {
+        if (element.polygonPoints.size() < 3 || !bounds.contains(pointX, pointY)) {
+            return false;
+        }
+
+        bool inside = false;
+        const double localX = pointX - bounds.x;
+        const double localY = pointY - bounds.y;
+        std::size_t previous = element.polygonPoints.size() - 1;
+        for (std::size_t current = 0; current < element.polygonPoints.size(); ++current) {
+            const Vec2& a = element.polygonPoints[current];
+            const Vec2& b = element.polygonPoints[previous];
+            const double ax = static_cast<double>(a.x) * dpiScale;
+            const double ay = static_cast<double>(a.y) * dpiScale;
+            const double bx = static_cast<double>(b.x) * dpiScale;
+            const double by = static_cast<double>(b.y) * dpiScale;
+            const double denominator = by - ay;
+            const bool crosses = ((ay > localY) != (by > localY)) &&
+                (localX < (bx - ax) * (localY - ay) / denominator + ax);
+            if (crosses) {
+                inside = !inside;
+            }
+            previous = current;
+        }
+        return inside;
+    }
+
+    static bool hitContains(const Element& element, const PointerEvent& event, float dpiScale, const Rect& bounds) {
+        if (element.kind == ElementKind::Polygon) {
+            return polygonContains(element, event.x, event.y, dpiScale, bounds);
+        }
+        return bounds.contains(event.x, event.y);
+    }
+
+    void updateTimer(const Element& element, float deltaSeconds) {
+        if (!element.onTimer || element.timerSeconds <= 0.0f) {
+            return;
+        }
+
+        TimerInstance& instance = timerInstance(element.id);
+        instance.seen = true;
+        if (!instance.active || !closeEnough(instance.seconds, element.timerSeconds)) {
+            instance.seconds = element.timerSeconds;
+            instance.elapsed = 0.0f;
+            instance.active = true;
+        }
+
+        if (!instance.active) {
+            return;
+        }
+
+        instance.elapsed += std::max(0.0f, deltaSeconds);
+        if (instance.elapsed >= instance.seconds) {
+            instance.active = false;
+            element.onTimer();
+            needsCompose_ = true;
+            needsRender_ = true;
+        } else {
+            animating_ = true;
+        }
+    }
+
+    void updateLayoutElement(const Element& element, float deltaSeconds) {
+        LayoutInstance& instance = layoutInstance(element.id);
+        const Rect beforeRect = inflateRect(
+            transformRect({element.frame.x, element.frame.y, element.frame.width, element.frame.height},
+                          element.frame,
+                          instance.transform.value()),
+            48.0f);
+
+        bool changed = false;
+        changed = instance.transform.setTarget(element.transform, element.transition, shouldAnimate(element, AnimProperty::Transform)) || changed;
+        changed = instance.opacity.setTarget(element.opacity, element.transition, shouldAnimate(element, AnimProperty::Opacity)) || changed;
+
+        changed = instance.transform.tick(deltaSeconds) || changed;
+        changed = instance.opacity.tick(deltaSeconds) || changed;
+
+        if (changed) {
+            const Rect afterRect = inflateRect(
+                transformRect({element.frame.x, element.frame.y, element.frame.width, element.frame.height},
+                              element.frame,
+                              instance.transform.value()),
+                48.0f);
+            addDirtyUnion(beforeRect, afterRect);
+        }
+        animating_ = animating_ || isLayoutAnimating(instance);
+    }
+
     void updateRect(const Element& element, float deltaSeconds, float dpiScale, bool snapFrame) {
         RectInstance& instance = rectInstance(element.id);
         instance.interaction = interactionInstance(element.id).state;
         const Rect beforeRect = visualRect(instance.frame.value(), instance.shadow.value(), instance.blur.value(), instance.transform.value());
 
         const bool interactive = element.interactive && !element.disabled;
-        const bool hoverChanged = instance.hoverBlend.update(interactive && instance.interaction.hover ? 1.0f : 0.0f, 9.0f, deltaSeconds);
-        const bool pressChanged = instance.pressBlend.update(interactive && instance.interaction.pressed ? 1.0f : 0.0f, 16.0f, deltaSeconds);
+        const bool stateColorsVisible = element.hasStateColors &&
+            (!closeEnough(element.color, element.hoverColor) || !closeEnough(element.color, element.pressedColor));
+        const float hoverSpeed = element.smoothStateColors ? 9.0f : 0.0f;
+        const float pressSpeed = element.smoothStateColors ? 16.0f : 0.0f;
+        const bool hoverChanged = instance.hoverBlend.update(interactive && stateColorsVisible && instance.interaction.hover ? 1.0f : 0.0f,
+                                                             hoverSpeed,
+                                                             deltaSeconds);
+        const bool pressChanged = instance.pressBlend.update(interactive && stateColorsVisible && instance.interaction.pressed ? 1.0f : 0.0f,
+                                                             pressSpeed,
+                                                             deltaSeconds);
         const float hover = instance.hoverBlend.value();
         const float press = instance.pressBlend.value();
-        const Color hoverColor = mixColor(element.color, element.hoverColor, hover);
-        const Color currentColor = mixColor(hoverColor, element.pressedColor, press);
+        const Color hoverColor = stateColorsVisible ? mixColor(element.color, element.hoverColor, hover) : element.color;
+        const Color currentColor = stateColorsVisible ? mixColor(hoverColor, element.pressedColor, press) : element.color;
         const bool gradientChanged = !sameGradient(instance.gradient, element.gradient);
         if (gradientChanged) {
             instance.gradient = element.gradient;
         }
 
-        bool changed = hoverChanged || pressChanged || gradientChanged || (interactive && instance.interaction.changed);
+        bool changed = hoverChanged || pressChanged || gradientChanged;
         changed = instance.frame.setTarget(element.frame, element.transition, !snapFrame && shouldAnimateFrame(element)) || changed;
         changed = instance.color.setTarget(currentColor, element.transition, shouldAnimate(element, AnimProperty::Color)) || changed;
         changed = instance.radius.setTarget(element.radius, element.transition, shouldAnimate(element, AnimProperty::Radius)) || changed;
@@ -868,6 +1094,53 @@ private:
             addDirtyUnion(beforeRect, afterRect);
         }
         animating_ = animating_ || isRectAnimating(element, instance);
+    }
+
+    void updatePolygon(const Element& element, float deltaSeconds, bool snapFrame) {
+        PolygonInstance& instance = polygonInstance(element.id);
+        instance.interaction = interactionInstance(element.id).state;
+        const Rect beforeRect = transformRect({instance.frame.value().x, instance.frame.value().y, instance.frame.value().width, instance.frame.value().height},
+                                             instance.frame.value(),
+                                             instance.transform.value());
+
+        const bool interactive = element.interactive && !element.disabled;
+        const bool stateColorsVisible = element.hasStateColors &&
+            (!closeEnough(element.color, element.hoverColor) || !closeEnough(element.color, element.pressedColor));
+        const float hoverSpeed = element.smoothStateColors ? 9.0f : 0.0f;
+        const float pressSpeed = element.smoothStateColors ? 16.0f : 0.0f;
+        const bool hoverChanged = instance.hoverBlend.update(interactive && stateColorsVisible && instance.interaction.hover ? 1.0f : 0.0f,
+                                                             hoverSpeed,
+                                                             deltaSeconds);
+        const bool pressChanged = instance.pressBlend.update(interactive && stateColorsVisible && instance.interaction.pressed ? 1.0f : 0.0f,
+                                                             pressSpeed,
+                                                             deltaSeconds);
+        const float hover = instance.hoverBlend.value();
+        const float press = instance.pressBlend.value();
+        const Color hoverColor = stateColorsVisible ? mixColor(element.color, element.hoverColor, hover) : element.color;
+        const Color currentColor = stateColorsVisible ? mixColor(hoverColor, element.pressedColor, press) : element.color;
+        const bool pointsChanged = !samePoints(instance.points, element.polygonPoints);
+        if (pointsChanged) {
+            instance.points = element.polygonPoints;
+        }
+
+        bool changed = hoverChanged || pressChanged || pointsChanged;
+        changed = instance.frame.setTarget(element.frame, element.transition, !snapFrame && shouldAnimateFrame(element)) || changed;
+        changed = instance.color.setTarget(currentColor, element.transition, shouldAnimate(element, AnimProperty::Color)) || changed;
+        changed = instance.opacity.setTarget(element.opacity, element.transition, shouldAnimate(element, AnimProperty::Opacity)) || changed;
+        changed = instance.transform.setTarget(element.transform, element.transition, shouldAnimate(element, AnimProperty::Transform)) || changed;
+
+        changed = instance.frame.tick(deltaSeconds) || changed;
+        changed = instance.color.tick(deltaSeconds) || changed;
+        changed = instance.opacity.tick(deltaSeconds) || changed;
+        changed = instance.transform.tick(deltaSeconds) || changed;
+
+        if (changed) {
+            const Rect afterRect = transformRect({instance.frame.value().x, instance.frame.value().y, instance.frame.value().width, instance.frame.value().height},
+                                                instance.frame.value(),
+                                                instance.transform.value());
+            addDirtyUnion(beforeRect, afterRect);
+        }
+        animating_ = animating_ || isPolygonAnimating(element, instance);
     }
 
     void updateText(const Element& element, float deltaSeconds, bool snapFrame) {
@@ -955,27 +1228,162 @@ private:
         animating_ = animating_ || isImageAnimating(instance);
     }
 
+    DependentVisualState dependentVisualStateForElement(const Element& element) const {
+        DependentVisualState state;
+        state.rect = inflateRect({element.frame.x, element.frame.y, element.frame.width, element.frame.height}, 56.0f);
+
+        if (!element.hoverOpacitySourceId.empty()) {
+            float hover = 0.0f;
+            if (hoverBlendForSource(element.hoverOpacitySourceId, hover)) {
+                hover = std::clamp(hover, 0.0f, 1.0f);
+                state.opacity *= lerpValue(element.hoverHiddenOpacity, element.hoverVisibleOpacity, hover);
+            } else {
+                state.opacity *= element.hoverHiddenOpacity;
+            }
+        }
+
+        if (!element.visualStateSourceId.empty()) {
+            float press = 0.0f;
+            LayoutRect sourceFrame;
+            if (pressBlendForSource(element.visualStateSourceId, press, sourceFrame)) {
+                state.scale = 1.0f - (1.0f - element.pressedScale) * press;
+                if (std::fabs(state.scale - 1.0f) > 0.0001f) {
+                    state.rect = inflateRect(scaleRectFromCenter(
+                        {element.frame.x, element.frame.y, element.frame.width, element.frame.height},
+                        state.scale), 56.0f);
+                }
+            }
+        }
+
+        state.seen = true;
+        return state;
+    }
+
+    void updateDependentVisualDirtyRegions() {
+        for (auto& item : dependentVisualStates_) {
+            item.second.seen = false;
+        }
+
+        forEachElement([&](const Element& element) {
+            if (element.hoverOpacitySourceId.empty() && element.visualStateSourceId.empty()) {
+                return;
+            }
+
+            const DependentVisualState current = dependentVisualStateForElement(element);
+            auto item = dependentVisualStates_.find(element.id);
+            if (item == dependentVisualStates_.end()) {
+                dependentVisualStates_.emplace(element.id, current);
+                if (!fullRedraw_ && current.opacity > 0.001f) {
+                    addDirtyRect(current.rect);
+                }
+                return;
+            }
+
+            DependentVisualState& previous = item->second;
+            previous.seen = true;
+            const bool changed =
+                !closeEnough(previous.rect, current.rect) ||
+                !closeEnough(previous.opacity, current.opacity) ||
+                !closeEnough(previous.scale, current.scale);
+            if (changed) {
+                addDirtyUnion(previous.rect, current.rect);
+                previous.rect = current.rect;
+                previous.opacity = current.opacity;
+                previous.scale = current.scale;
+            }
+        });
+
+        for (auto item = dependentVisualStates_.begin(); item != dependentVisualStates_.end(); ) {
+            if (item->second.seen) {
+                ++item;
+                continue;
+            }
+            addDirtyRect(item->second.rect);
+            item = dependentVisualStates_.erase(item);
+        }
+    }
+
+    bool hoverBlendForSource(const std::string& id, float& value) const {
+        const auto rect = rects_.find(id);
+        if (rect != rects_.end()) {
+            value = rect->second.hoverBlend.value();
+            return true;
+        }
+        const auto polygon = polygons_.find(id);
+        if (polygon != polygons_.end()) {
+            value = polygon->second.hoverBlend.value();
+            return true;
+        }
+        return false;
+    }
+
+    bool pressBlendForSource(const std::string& id, float& value, LayoutRect& frame) const {
+        const auto rect = rects_.find(id);
+        if (rect != rects_.end()) {
+            value = rect->second.pressBlend.value();
+            frame = rect->second.frame.value();
+            return true;
+        }
+        const auto polygon = polygons_.find(id);
+        if (polygon != polygons_.end()) {
+            value = polygon->second.pressBlend.value();
+            frame = polygon->second.frame.value();
+            return true;
+        }
+        return false;
+    }
+
     RenderTransform resolveRenderTransform(const Element& element, float dpiScale, const RenderTransform& inherited) {
-        if (element.visualStateSourceId.empty()) {
-            return inherited;
+        RenderTransform result = inherited;
+
+        if (element.kind == ElementKind::Row ||
+            element.kind == ElementKind::Column ||
+            element.kind == ElementKind::Stack) {
+            const auto layout = layouts_.find(element.id);
+            if (layout != layouts_.end()) {
+                const Transform local = layout->second.transform.value();
+                const float opacity = layout->second.opacity.value();
+                const bool hasTransform = !isIdentityTransform(local);
+                const bool hasOpacity = !closeEnough(opacity, 1.0f);
+                if (hasTransform || hasOpacity) {
+                    const Rect frame = applyRenderTransform(toPixelRect(element.frame, dpiScale), result);
+                    result.active = true;
+                    result.origin = {
+                        frame.x + frame.width * local.origin.x,
+                        frame.y + frame.height * local.origin.y
+                    };
+                    result.scale *= (local.scale.x + local.scale.y) * 0.5f;
+                    result.translate.x += toPixels(local.translate.x, dpiScale);
+                    result.translate.y += toPixels(local.translate.y, dpiScale);
+                    result.opacity *= opacity;
+                }
+            }
         }
 
-        const auto instance = rects_.find(element.visualStateSourceId);
-        if (instance == rects_.end()) {
-            return inherited;
+        if (!element.hoverOpacitySourceId.empty()) {
+            float hover = 0.0f;
+            if (hoverBlendForSource(element.hoverOpacitySourceId, hover)) {
+                hover = std::clamp(hover, 0.0f, 1.0f);
+                result.opacity *= lerpValue(element.hoverHiddenOpacity, element.hoverVisibleOpacity, hover);
+            } else {
+                result.opacity *= element.hoverHiddenOpacity;
+            }
         }
 
-        const float scale = 1.0f - (1.0f - element.pressedScale) * instance->second.pressBlend.value();
-        if (std::fabs(scale - 1.0f) <= 0.0001f) {
-            return inherited;
+        if (!element.visualStateSourceId.empty()) {
+            float press = 0.0f;
+            LayoutRect sourceFrame;
+            if (pressBlendForSource(element.visualStateSourceId, press, sourceFrame)) {
+                const float scale = 1.0f - (1.0f - element.pressedScale) * press;
+                if (std::fabs(scale - 1.0f) > 0.0001f) {
+                    const Rect frame = applyRenderTransform(toPixelRect(sourceFrame, dpiScale), result);
+                    result.active = true;
+                    result.origin = {frame.x + frame.width * 0.5f, frame.y + frame.height * 0.5f};
+                    result.scale *= scale;
+                }
+            }
         }
-
-        const Rect frame = applyRenderTransform(toPixelRect(instance->second.frame.value(), dpiScale), inherited);
-        return {
-            true,
-            {frame.x + frame.width * 0.5f, frame.y + frame.height * 0.5f},
-            scale
-        };
+        return result;
     }
 
     bool ensureRenderCache(int width, int height) {
@@ -1101,6 +1509,9 @@ private:
                        bool hasScissor = false,
                        const Rect& scissorRect = {}) {
         const RenderTransform renderTransform = resolveRenderTransform(element, dpiScale, inheritedTransform);
+        if (renderTransform.opacity <= 0.001f) {
+            return;
+        }
         Rect effectiveScissor = scissorRect;
         bool effectiveHasScissor = hasScissor;
         if (element.clip) {
@@ -1125,6 +1536,17 @@ private:
                 (!effectiveHasScissor || intersects(visual, effectiveScissor))) {
                 applyOptionalScissor(effectiveHasScissor, effectiveScissor, windowHeight);
                 renderRect(element, windowWidth, windowHeight, dpiScale, renderTransform);
+            }
+        } else if (element.kind == ElementKind::Polygon) {
+            Rect visual = toPixelRect(visualRect(polygonInstance(element.id).frame.value(),
+                                                Shadow{},
+                                                0.0f,
+                                                polygonInstance(element.id).transform.value()), dpiScale);
+            visual = applyRenderTransform(visual, renderTransform);
+            if ((!dirtyRect || intersects(visual, *dirtyRect)) &&
+                (!effectiveHasScissor || intersects(visual, effectiveScissor))) {
+                applyOptionalScissor(effectiveHasScissor, effectiveScissor, windowHeight);
+                renderPolygon(element, windowWidth, windowHeight, dpiScale, renderTransform);
             }
         } else if (element.kind == ElementKind::Text) {
             Rect frame = applyRenderTransform(toPixelRect(textInstance(element.id).frame.value(), dpiScale), renderTransform);
@@ -1174,6 +1596,8 @@ private:
             };
             transform.scale.x *= visualScale;
             transform.scale.y *= visualScale;
+            transform.translate.x += renderTransform.translate.x;
+            transform.translate.y += renderTransform.translate.y;
         }
 
         instance.primitive->setBounds(frame.x, frame.y, frame.width, frame.height);
@@ -1183,7 +1607,51 @@ private:
         instance.primitive->setShadow(scaleShadow(instance.shadow.value(), dpiScale));
         instance.primitive->setCornerRadius(toPixels(instance.radius.value(), dpiScale));
         instance.primitive->setBlur(toPixels(instance.blur.value(), dpiScale));
-        instance.primitive->setOpacity(instance.opacity.value());
+        instance.primitive->setOpacity(instance.opacity.value() * renderTransform.opacity);
+        instance.primitive->setTransform(transform);
+        instance.primitive->render(windowWidth, windowHeight);
+    }
+
+    std::vector<Vec2> scaledPolygonPoints(const std::vector<Vec2>& points, float dpiScale) const {
+        std::vector<Vec2> result;
+        result.reserve(points.size());
+        for (const Vec2& point : points) {
+            result.push_back({toPixels(point.x, dpiScale), toPixels(point.y, dpiScale)});
+        }
+        return result;
+    }
+
+    void renderPolygon(const Element& element,
+                       int windowWidth,
+                       int windowHeight,
+                       float dpiScale,
+                       const RenderTransform& renderTransform) {
+        PolygonInstance& instance = polygonInstance(element.id);
+        if (!instance.initialized) {
+            instance.initialized = instance.primitive->initialize();
+            if (!instance.initialized) {
+                return;
+            }
+        }
+
+        const Rect frame = toPixelRect(instance.frame.value(), dpiScale);
+        const float visualScale = renderTransform.active ? renderTransform.scale : 1.0f;
+        Transform transform = scaleTransform(instance.transform.value(), dpiScale);
+        if (renderTransform.active && frame.width > 0.0f && frame.height > 0.0f) {
+            transform.origin = {
+                (renderTransform.origin.x - frame.x) / frame.width,
+                (renderTransform.origin.y - frame.y) / frame.height
+            };
+            transform.scale.x *= visualScale;
+            transform.scale.y *= visualScale;
+            transform.translate.x += renderTransform.translate.x;
+            transform.translate.y += renderTransform.translate.y;
+        }
+
+        instance.primitive->setBounds(frame.x, frame.y, frame.width, frame.height);
+        instance.primitive->setPoints(scaledPolygonPoints(instance.points, dpiScale));
+        instance.primitive->setColor(instance.color.value());
+        instance.primitive->setOpacity(instance.opacity.value() * renderTransform.opacity);
         instance.primitive->setTransform(transform);
         instance.primitive->render(windowWidth, windowHeight);
     }
@@ -1221,9 +1689,16 @@ private:
         } else if (element.verticalAlign == VerticalAlign::Bottom) {
             y = frame.y + frame.height;
         }
+        if (renderTransform.active) {
+            x += renderTransform.translate.x;
+            y += renderTransform.translate.y;
+        }
+        textColor.a *= renderTransform.opacity;
 
         instance.primitive->setPosition(x, y);
-        instance.primitive->setVisualScale(renderTransform.origin.x, renderTransform.origin.y, visualScale);
+        instance.primitive->setVisualScale(renderTransform.origin.x + renderTransform.translate.x,
+                                           renderTransform.origin.y + renderTransform.translate.y,
+                                           visualScale);
         instance.primitive->setText(element.text);
         instance.primitive->setFontFamily(element.fontFamily);
         instance.primitive->setFontSize(toPixels(element.fontSize, dpiScale));
@@ -1260,12 +1735,14 @@ private:
             };
             transform.scale.x *= visualScale;
             transform.scale.y *= visualScale;
+            transform.translate.x += renderTransform.translate.x;
+            transform.translate.y += renderTransform.translate.y;
         }
 
         instance.primitive->setBounds(frame.x, frame.y, frame.width, frame.height);
         instance.primitive->setTint(instance.tint.value());
         instance.primitive->setCornerRadius(toPixels(instance.radius.value(), dpiScale));
-        instance.primitive->setOpacity(instance.opacity.value());
+        instance.primitive->setOpacity(instance.opacity.value() * renderTransform.opacity);
         instance.primitive->setTransform(transform);
         instance.primitive->setFit(instance.fit);
         instance.primitive->render(windowWidth, windowHeight);
@@ -1273,9 +1750,13 @@ private:
 
     Ui ui_;
     std::unordered_map<std::string, RectInstance> rects_;
+    std::unordered_map<std::string, PolygonInstance> polygons_;
     std::unordered_map<std::string, TextInstance> texts_;
     std::unordered_map<std::string, ImageInstance> images_;
     std::unordered_map<std::string, InteractionInstance> interactions_;
+    std::unordered_map<std::string, LayoutInstance> layouts_;
+    std::unordered_map<std::string, TimerInstance> timers_;
+    std::unordered_map<std::string, DependentVisualState> dependentVisualStates_;
     std::unordered_map<std::string, LayoutRect> frameTargets_;
     std::vector<ElementSnapshot> elementStructure_;
     std::vector<LogicalDirtyRect> dirtyRects_;

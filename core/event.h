@@ -26,6 +26,9 @@ struct PointerEvent {
     bool down = false;
     bool pressedThisFrame = false;
     bool releasedThisFrame = false;
+    bool rightDown = false;
+    bool rightPressedThisFrame = false;
+    bool rightReleasedThisFrame = false;
 };
 
 struct KeyboardEvent {
@@ -277,6 +280,7 @@ inline PointerEvent readPointerEvent(GLFWwindow* window, float dpiScale = 1.0f) 
     static double lastX = 0.0;
     static double lastY = 0.0;
     static bool lastDown = false;
+    static bool lastRightDown = false;
 
     double x = 0.0;
     double y = 0.0;
@@ -290,12 +294,16 @@ inline PointerEvent readPointerEvent(GLFWwindow* window, float dpiScale = 1.0f) 
     event.deltaX = x - lastX;
     event.deltaY = y - lastY;
     event.down = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    event.rightDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
     event.pressedThisFrame = event.down && !lastDown;
     event.releasedThisFrame = !event.down && lastDown;
+    event.rightPressedThisFrame = event.rightDown && !lastRightDown;
+    event.rightReleasedThisFrame = !event.rightDown && lastRightDown;
 
     lastX = x;
     lastY = y;
     lastDown = event.down;
+    lastRightDown = event.rightDown;
     return event;
 }
 

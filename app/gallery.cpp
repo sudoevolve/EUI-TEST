@@ -5,6 +5,7 @@
 #include "core/platform.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <functional>
 #include <string>
 
@@ -30,6 +31,14 @@ std::string sampleInput = "EUI";
 float sampleSlider = 0.44f;
 int sampleSegment = 1;
 int sampleTab = 0;
+int sampleDropdown = 1;
+bool sampleDropdownOpen = false;
+bool sampleDialogOpen = false;
+bool sampleToastVisible = false;
+bool sampleContextMenuOpen = false;
+float sampleContextMenuX = 0.0f;
+float sampleContextMenuY = 0.0f;
+std::string sampleFeedback = "Ready";
 float pageScroll[6] = {};
 
 constexpr float kSidebarWidth = 272.0f;
@@ -153,7 +162,7 @@ core::Color accent() {
 
 const char* pageTitle() {
     if (selectedPage == 1) {
-        return "Text Gallery";
+        return "Style";
     }
     if (selectedPage == 2) {
         return "Animation";
@@ -172,7 +181,7 @@ const char* pageTitle() {
 
 const char* pageSubtitle() {
     if (selectedPage == 1) {
-        return "Different text sizes, weights, alignment and icon text.";
+        return "Text scales, icon text and theme color tokens for developers.";
     }
     if (selectedPage == 2) {
         return "Click and hover samples driven by DSL transitions.";
@@ -273,7 +282,7 @@ void composeSidebar(core::dsl::Ui& ui, float height) {
                         .build();
 
                     navItem(ui, "nav.controls", "Controls", 0xF1B2, 0);
-                    navItem(ui, "nav.text", "Text", 0xF031, 1);
+                    navItem(ui, "nav.text", "Style", 0xF1FC, 1);
                     navItem(ui, "nav.animation", "Animation", 0xF2F1, 2);
                     navItem(ui, "nav.settings", "Settings", 0xF013, 3);
                     navItem(ui, "nav.bing", "Bing", 0xF1C5, 4);
@@ -508,6 +517,15 @@ void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
     const float fieldWidth = std::max(0.0f, std::min(width, 680.0f));
     const float componentCardWidth = std::max(120.0f, std::min(340.0f, (width - 20.0f) * 0.5f));
     const float componentRowWidth = componentCardWidth * 2.0f + 20.0f;
+    const float feedbackWidth = std::max(120.0f, std::min(206.0f, (fieldWidth - 36.0f) / 3.0f));
+    const float dataRowGap = 20.0f;
+    const float dropdownWidth = std::max(180.0f, std::min(260.0f, fieldWidth * 0.36f));
+    const float tableWidth = std::max(260.0f, fieldWidth - dropdownWidth - dataRowGap);
+    const float dataRowHeight = 200.0f;
+    const float chartGap = 18.0f;
+    const float chartWidth = std::max(150.0f, std::min(206.0f, (fieldWidth - chartGap * 2.0f) / 3.0f));
+    const float chartHeight = 236.0f;
+    const float chartRowWidth = chartWidth * 3.0f + chartGap * 2.0f;
 
     ui.text("controls.components.title")
         .size(width, 30.0f)
@@ -661,6 +679,165 @@ void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
                 .build();
         });
 
+    ui.text("controls.feedback.title")
+        .size(width, 30.0f)
+        .text("Feedback Components")
+        .customFont("YouSheBiaoTiHei")
+        .fontSize(25.0f)
+        .lineHeight(30.0f)
+        .color(textPrimary())
+        .build();
+
+    ui.row("controls.feedback")
+        .size(feedbackWidth * 3.0f + 36.0f, 82.0f)
+        .gap(18.0f)
+        .content([&] {
+            components::button(ui, "control.dialog")
+                .theme(themeColors(), false)
+                .size(feedbackWidth, 54.0f)
+                .icon(0xF2D0)
+                .text("Dialog")
+                .textColor(textPrimary())
+                .iconColor(accent())
+                .radius(12.0f)
+                .border(1.0f, borderColor(0.70f))
+                .shadow(10.0f, 0.0f, 3.0f, shadowColor(0.16f, 0.08f))
+                .transition(pageTransition())
+                .onClick([] {
+                    sampleDialogOpen = true;
+                    sampleFeedback = "Dialog opened";
+                })
+                .build();
+
+            components::button(ui, "control.toast")
+                .theme(themeColors(), false)
+                .size(feedbackWidth, 54.0f)
+                .icon(0xF0F3)
+                .text("Toast")
+                .textColor(textPrimary())
+                .iconColor(accent())
+                .radius(12.0f)
+                .border(1.0f, borderColor(0.70f))
+                .shadow(10.0f, 0.0f, 3.0f, shadowColor(0.16f, 0.08f))
+                .transition(pageTransition())
+                .onClick([] {
+                    sampleToastVisible = true;
+                    sampleFeedback = "Toast queued";
+                })
+                .build();
+
+            components::button(ui, "control.context")
+                .theme(themeColors(), false)
+                .size(feedbackWidth, 54.0f)
+                .icon(0xF0C9)
+                .text("Right Click")
+                .textColor(textPrimary())
+                .iconColor(accent())
+                .radius(12.0f)
+                .border(1.0f, borderColor(0.70f))
+                .shadow(10.0f, 0.0f, 3.0f, shadowColor(0.16f, 0.08f))
+                .transition(pageTransition())
+                .onContextMenu([](const core::PointerEvent& event, const core::Rect&) {
+                    sampleContextMenuOpen = true;
+                    sampleContextMenuX = static_cast<float>(event.x);
+                    sampleContextMenuY = static_cast<float>(event.y);
+                    sampleFeedback = "Context menu opened";
+                })
+                .build();
+        });
+
+    ui.text("controls.feedback.state")
+        .size(width, 22.0f)
+        .text(sampleFeedback)
+        .fontSize(15.0f)
+        .lineHeight(20.0f)
+        .color(textMuted())
+        .build();
+
+    ui.text("controls.data.title")
+        .size(width, 30.0f)
+        .text("Selection & Data")
+        .customFont("YouSheBiaoTiHei")
+        .fontSize(25.0f)
+        .lineHeight(30.0f)
+        .color(textPrimary())
+        .build();
+
+    ui.row("controls.data.row")
+        .size(dropdownWidth + tableWidth + dataRowGap, dataRowHeight)
+        .gap(dataRowGap)
+        .content([&] {
+            components::dropdown(ui, "control.dropdown")
+                .theme(themeColors())
+                .size(dropdownWidth, 44.0f)
+                .items({"Draft", "Review", "Published", "Archived"})
+                .selected(sampleDropdown)
+                .open(sampleDropdownOpen)
+                .transition(pageTransition())
+                .onOpenChange([](bool open) {
+                    sampleDropdownOpen = open;
+                })
+                .onChange([](int index) {
+                    sampleDropdown = index;
+                    sampleFeedback = "Dropdown changed";
+                })
+                .build();
+
+            components::dataTable(ui, "control.table")
+                .theme(themeColors())
+                .size(tableWidth, 174.0f)
+                .columns({"Name", "Status", "Owner"})
+                .rows({
+                    {"EUI Core", "Active", "Sudo"},
+                    {"Gallery", "Review", "Design"},
+                    {"Docs", "Draft", "DevRel"},
+                    {"Runtime", "Stable", "Engine"}
+                })
+                .transition(pageTransition())
+                .build();
+        });
+
+    ui.text("controls.charts.title")
+        .size(width, 30.0f)
+        .text("Charts")
+        .customFont("YouSheBiaoTiHei")
+        .fontSize(25.0f)
+        .lineHeight(30.0f)
+        .color(textPrimary())
+        .build();
+
+    ui.row("controls.charts.row")
+        .size(chartRowWidth, chartHeight)
+        .gap(chartGap)
+        .content([&] {
+            components::linechart(ui, "control.chart.line")
+                .theme(themeColors())
+                .size(chartWidth, chartHeight)
+                .title("LineChart")
+                .values({0.22f, 0.30f, 0.20f, 0.55f, 0.42f, 0.86f})
+                .labels({"Jan", "Feb", "Mar", "Apr", "May", "Jun"})
+                .transition(pageTransition())
+                .build();
+
+            components::barchart(ui, "control.chart.bar")
+                .theme(themeColors())
+                .size(chartWidth, chartHeight)
+                .title("BarChart")
+                .values({0.92f, 0.36f, 0.68f, 0.52f})
+                .labels({"D1", "D2", "D3", "D4"})
+                .transition(pageTransition())
+                .build();
+
+            components::piechart(ui, "control.chart.pie")
+                .theme(themeColors())
+                .size(chartWidth, chartHeight)
+                .title("PieChart")
+                .values({0.42f, 0.24f, 0.18f, 0.16f})
+                .labels({"Blue", "Green", "Orange", "Pink"})
+                .transition(pageTransition())
+                .build();
+        });
+
     ui.text("controls.primitives.title")
         .size(width, 30.0f)
         .text("Primitive Properties")
@@ -701,11 +878,70 @@ void textSample(core::dsl::Ui& ui, const std::string& id, const std::string& tex
         .build();
 }
 
-void composeTextPage(core::dsl::Ui& ui, float width, float height) {
+std::string colorHex(core::Color color) {
+    const int r = static_cast<int>(std::clamp(color.r, 0.0f, 1.0f) * 255.0f + 0.5f);
+    const int g = static_cast<int>(std::clamp(color.g, 0.0f, 1.0f) * 255.0f + 0.5f);
+    const int b = static_cast<int>(std::clamp(color.b, 0.0f, 1.0f) * 255.0f + 0.5f);
+    char result[8] = {};
+    std::snprintf(result, sizeof(result), "#%02X%02X%02X", r, g, b);
+    return result;
+}
+
+void themeSwatch(core::dsl::Ui& ui, const std::string& id, const std::string& name, const core::Color& color, float width) {
+    ui.stack(id)
+        .size(width, 86.0f)
+        .content([&] {
+            ui.rect(id + ".bg")
+                .size(width, 86.0f)
+                .color(surface())
+                .radius(12.0f)
+                .border(1.0f, borderColor(0.72f))
+                .build();
+
+            ui.rect(id + ".chip")
+                .x(12.0f)
+                .y(12.0f)
+                .size(std::max(0.0f, width - 24.0f), 26.0f)
+                .color(color)
+                .radius(8.0f)
+                .border(1.0f, withAlpha(textPrimary(), color.a < 0.55f ? 0.20f : 0.08f))
+                .build();
+
+            ui.text(id + ".name")
+                .x(12.0f)
+                .y(44.0f)
+                .size(std::max(0.0f, width - 24.0f), 20.0f)
+                .text(name)
+                .fontSize(14.0f)
+                .lineHeight(18.0f)
+                .color(textPrimary())
+                .horizontalAlign(core::HorizontalAlign::Center)
+                .build();
+
+            ui.text(id + ".value")
+                .x(12.0f)
+                .y(64.0f)
+                .size(std::max(0.0f, width - 24.0f), 18.0f)
+                .text(colorHex(color))
+                .fontSize(12.0f)
+                .lineHeight(15.0f)
+                .color(textMuted())
+                .horizontalAlign(core::HorizontalAlign::Center)
+                .build();
+        })
+        .build();
+}
+
+void composeStylePage(core::dsl::Ui& ui, float width, float height) {
     const float textWidth = std::max(240.0f, std::min(width, 760.0f));
     const float iconGap = 20.0f;
     const float iconCardWidth = std::max(60.0f, std::min(120.0f, (width - iconGap * 3.0f) / 4.0f));
     const float iconRowWidth = iconCardWidth * 4.0f + iconGap * 3.0f;
+    const float swatchGap = 14.0f;
+    const float swatchWidth = std::max(94.0f, std::min(142.0f, (width - swatchGap * 3.0f) / 4.0f));
+    const float swatchRowWidth = swatchWidth * 4.0f + swatchGap * 3.0f;
+    const components::theme::ThemeColorTokens tokens = themeColors();
+    const components::theme::PageVisualTokens visuals = pageVisuals();
 
     ui.column("text.samples")
         .size(width, std::min(height, 380.0f))
@@ -742,6 +978,54 @@ void composeTextPage(core::dsl::Ui& ui, float width, float height) {
                             .build();
                     }
                 });
+        });
+
+    ui.text("style.theme.title")
+        .size(width, 30.0f)
+        .text("Theme Color Tokens")
+        .customFont("YouSheBiaoTiHei")
+        .fontSize(25.0f)
+        .lineHeight(30.0f)
+        .color(textPrimary())
+        .build();
+
+    ui.row("style.theme.tokens.a")
+        .size(swatchRowWidth, 88.0f)
+        .gap(swatchGap)
+        .content([&] {
+            themeSwatch(ui, "style.color.background", "background", tokens.background, swatchWidth);
+            themeSwatch(ui, "style.color.primary", "primary", tokens.primary, swatchWidth);
+            themeSwatch(ui, "style.color.surface", "surface", tokens.surface, swatchWidth);
+            themeSwatch(ui, "style.color.surfaceHover", "surfaceHover", tokens.surfaceHover, swatchWidth);
+        });
+
+    ui.row("style.theme.tokens.b")
+        .size(swatchRowWidth, 88.0f)
+        .gap(swatchGap)
+        .content([&] {
+            themeSwatch(ui, "style.color.surfaceActive", "surfaceActive", tokens.surfaceActive, swatchWidth);
+            themeSwatch(ui, "style.color.text", "text", tokens.text, swatchWidth);
+            themeSwatch(ui, "style.color.border", "border", tokens.border, swatchWidth);
+            themeSwatch(ui, "style.color.accent", "pageAccent", accent(), swatchWidth);
+        });
+
+    ui.text("style.visual.title")
+        .size(width, 30.0f)
+        .text("Page Visual Colors")
+        .customFont("YouSheBiaoTiHei")
+        .fontSize(25.0f)
+        .lineHeight(30.0f)
+        .color(textPrimary())
+        .build();
+
+    ui.row("style.theme.visuals")
+        .size(swatchRowWidth, 88.0f)
+        .gap(swatchGap)
+        .content([&] {
+            themeSwatch(ui, "style.color.title", "titleColor", visuals.titleColor, swatchWidth);
+            themeSwatch(ui, "style.color.subtitle", "subtitleColor", visuals.subtitleColor, swatchWidth);
+            themeSwatch(ui, "style.color.body", "bodyColor", visuals.bodyColor, swatchWidth);
+            themeSwatch(ui, "style.color.softAccent", "softAccent", visuals.softAccentColor, swatchWidth);
         });
 }
 
@@ -1085,7 +1369,7 @@ void composePageBody(core::dsl::Ui& ui, float width, float height) {
     if (selectedPage == 0) {
         composeControlsPage(ui, width, height);
     } else if (selectedPage == 1) {
-        composeTextPage(ui, width, height);
+        composeStylePage(ui, width, height);
     } else if (selectedPage == 2) {
         composeAnimationPage(ui, width, height);
     } else if (selectedPage == 3) {
@@ -1098,11 +1382,19 @@ void composePageBody(core::dsl::Ui& ui, float width, float height) {
 }
 
 float pageBodyContentHeight(float viewportHeight) {
+    const float bodyGap = optionDense ? 18.0f : 26.0f;
     if (selectedPage == 0) {
-        return std::max(viewportHeight, optionDense ? 840.0f : 920.0f);
+        const float controlsContentHeight =
+            30.0f + 68.0f + 44.0f + 92.0f + 14.0f + 32.0f + 46.0f +
+            30.0f + 82.0f + 22.0f + 30.0f + 200.0f + 30.0f + 236.0f +
+            30.0f + 144.0f + 144.0f + bodyGap * 16.0f + 56.0f;
+        return std::max(viewportHeight, controlsContentHeight);
     }
     if (selectedPage == 1) {
-        return std::max(viewportHeight, 420.0f);
+        const float styleContentHeight =
+            380.0f + 30.0f + 88.0f + 88.0f + 30.0f + 88.0f +
+            bodyGap * 5.0f + 40.0f;
+        return std::max(viewportHeight, styleContentHeight);
     }
     if (selectedPage == 2) {
         return std::max(viewportHeight, 430.0f);
@@ -1235,6 +1527,73 @@ void compose(core::dsl::Ui& ui, const core::dsl::Screen& screen) {
             composeSidebar(ui, screen.height);
             composeContent(ui, contentWidth, screen.height);
         });
+
+    components::dialog(ui, "feedback.dialog")
+        .theme(themeColors())
+        .screen(screen.width, screen.height)
+        .size(430.0f, 228.0f)
+        .open(sampleDialogOpen)
+        .title("Dialog Component")
+        .message("A modal surface for focused confirmation. It uses the same theme tokens, buttons and dirty-region rendering path as the rest of the gallery.")
+        .primaryText("Confirm")
+        .secondaryText("Cancel")
+        .onPrimary([] {
+            sampleDialogOpen = false;
+            sampleToastVisible = true;
+            sampleFeedback = "Dialog confirmed";
+        })
+        .onSecondary([] {
+            sampleDialogOpen = false;
+            sampleFeedback = "Dialog cancelled";
+        })
+        .onClose([] {
+            sampleDialogOpen = false;
+            sampleFeedback = "Dialog closed";
+        })
+        .build();
+
+    components::contextMenu(ui, "feedback.context")
+        .theme(themeColors())
+        .screen(screen.width, screen.height)
+        .position(sampleContextMenuX, sampleContextMenuY)
+        .items({"Inspect", "Duplicate", "Copy Token", "Dismiss"})
+        .open(sampleContextMenuOpen)
+        .onSelect([](int index) {
+            sampleContextMenuOpen = false;
+            sampleToastVisible = true;
+            if (index == 0) {
+                sampleFeedback = "Inspect selected";
+            } else if (index == 1) {
+                sampleFeedback = "Duplicate selected";
+            } else if (index == 2) {
+                sampleFeedback = "Copy Token selected";
+            } else {
+                sampleFeedback = "Context menu dismissed";
+                sampleToastVisible = false;
+            }
+        })
+        .onDismiss([] {
+            sampleContextMenuOpen = false;
+            sampleFeedback = "Context menu dismissed";
+        })
+        .build();
+
+    components::toast(ui, "feedback.toast")
+        .theme(themeColors())
+        .screen(screen.width, screen.height)
+        .visible(sampleToastVisible)
+        .duration(3.0f)
+        .title("Gallery Feedback")
+        .message(sampleFeedback)
+        .onAutoDismiss([] {
+            sampleToastVisible = false;
+            sampleFeedback = "Ready";
+        })
+        .onDismiss([] {
+            sampleToastVisible = false;
+            sampleFeedback = "Toast dismissed";
+        })
+        .build();
 }
 
 } // namespace app

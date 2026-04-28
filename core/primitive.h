@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace core {
 
@@ -668,6 +669,233 @@ private:
     GLint gradientDirectionLocation_ = -1;
     GLint shadowPassLocation_ = -1;
     GLint backdropLocation_ = -1;
+};
+
+class PolygonPrimitive {
+public:
+    PolygonPrimitive() = default;
+
+    bool initialize() {
+        const char* vertexSource =
+            "#version 330 core\n"
+            "layout(location = 0) in vec2 aScreenPos;\n"
+            "uniform vec2 uWindowSize;\n"
+            "void main() {\n"
+            "    vec2 ndc = vec2((aScreenPos.x / uWindowSize.x) * 2.0 - 1.0,\n"
+            "                    1.0 - (aScreenPos.y / uWindowSize.y) * 2.0);\n"
+            "    gl_Position = vec4(ndc, 0.0, 1.0);\n"
+            "}\n";
+
+        const char* fragmentSource =
+            "#version 330 core\n"
+            "out vec4 FragColor;\n"
+            "uniform vec4 uFillColor;\n"
+            "uniform float uOpacity;\n"
+            "void main() {\n"
+            "    FragColor = vec4(uFillColor.rgb, uFillColor.a * uOpacity);\n"
+            "}\n";
+
+        if (!retainSharedResources(vertexSource, fragmentSource)) {
+            return false;
+        }
+
+        const SharedResources& resources = sharedResources();
+        vao_ = resources.vao;
+        vbo_ = resources.vbo;
+        shaderProgram_ = resources.shaderProgram;
+        windowSizeLocation_ = resources.windowSizeLocation;
+        fillColorLocation_ = resources.fillColorLocation;
+        opacityLocation_ = resources.opacityLocation;
+        return true;
+    }
+
+    void destroy() {
+        if (shaderProgram_) {
+            releaseSharedResources();
+        }
+        vao_ = 0;
+        vbo_ = 0;
+        shaderProgram_ = 0;
+        windowSizeLocation_ = -1;
+        fillColorLocation_ = -1;
+        opacityLocation_ = -1;
+    }
+
+    void setBounds(float x, float y, float width, float height) { bounds_ = {x, y, width, height}; }
+    void setPoints(const std::vector<Vec2>& points) { points_ = points; }
+    void setColor(const Color& color) { color_ = color; }
+    void setOpacity(float opacity) { opacity_ = std::clamp(opacity, 0.0f, 1.0f); }
+    void setTransform(const Transform& transform) { transform_ = transform; }
+
+    void render(int windowWidth, int windowHeight) const {
+        if (!shaderProgram_ || !vao_ || !vbo_ || points_.size() < 3 || opacity_ <= 0.0f || color_.a <= 0.0f) {
+            return;
+        }
+
+        std::vector<float> vertices;
+        vertices.reserve(points_.size() * 2u);
+        for (const Vec2& point : points_) {
+            const Vec2 transformed = transformPoint(bounds_.x + point.x, bounds_.y + point.y);
+            vertices.push_back(transformed.x);
+            vertices.push_back(transformed.y);
+        }
+
+        const GLboolean blendEnabled = glIsEnabled(GL_BLEND);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        glUseProgram(shaderProgram_);
+        glUniform2f(windowSizeLocation_, static_cast<float>(windowWidth), static_cast<float>(windowHeight));
+        glUniform4f(fillColorLocation_, color_.r, color_.g, color_.b, color_.a);
+        glUniform1f(opacityLocation_, opacity_);
+
+        glBindVertexArray(vao_);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertices.size() * sizeof(float)), vertices.data(), GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, static_cast<GLsizei>(points_.size()));
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+
+        if (!blendEnabled) {
+            glDisable(GL_BLEND);
+        }
+    }
+
+private:
+    struct SharedResources {
+        GLuint vao = 0;
+        GLuint vbo = 0;
+        GLuint shaderProgram = 0;
+        GLint windowSizeLocation = -1;
+        GLint fillColorLocation = -1;
+        GLint opacityLocation = -1;
+        int references = 0;
+    };
+
+    static SharedResources& sharedResources() {
+        static SharedResources resources;
+        return resources;
+    }
+
+    static bool retainSharedResources(const char* vertexSource, const char* fragmentSource) {
+        SharedResources& resources = sharedResources();
+        ++resources.references;
+        if (resources.shaderProgram != 0) {
+            return true;
+        }
+
+        GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSource);
+        GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
+        if (!vertexShader || !fragmentShader) {
+            if (vertexShader) {
+                glDeleteShader(vertexShader);
+            }
+            if (fragmentShader) {
+                glDeleteShader(fragmentShader);
+            }
+            resources.references = std::max(0, resources.references - 1);
+            return false;
+        }
+
+        resources.shaderProgram = glCreateProgram();
+        glAttachShader(resources.shaderProgram, vertexShader);
+        glAttachShader(resources.shaderProgram, fragmentShader);
+        glLinkProgram(resources.shaderProgram);
+        glDeleteShader(vertexShader);
+        glDeleteShader(fragmentShader);
+
+        GLint linked = 0;
+        glGetProgramiv(resources.shaderProgram, GL_LINK_STATUS, &linked);
+        if (!linked) {
+            glDeleteProgram(resources.shaderProgram);
+            resources.shaderProgram = 0;
+            resources.references = std::max(0, resources.references - 1);
+            return false;
+        }
+
+        resources.windowSizeLocation = glGetUniformLocation(resources.shaderProgram, "uWindowSize");
+        resources.fillColorLocation = glGetUniformLocation(resources.shaderProgram, "uFillColor");
+        resources.opacityLocation = glGetUniformLocation(resources.shaderProgram, "uOpacity");
+
+        glGenVertexArrays(1, &resources.vao);
+        glGenBuffers(1, &resources.vbo);
+        glBindVertexArray(resources.vao);
+        glBindBuffer(GL_ARRAY_BUFFER, resources.vbo);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, nullptr);
+        glEnableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+
+        return resources.shaderProgram != 0 && resources.vao != 0 && resources.vbo != 0;
+    }
+
+    static void releaseSharedResources() {
+        SharedResources& resources = sharedResources();
+        resources.references = std::max(0, resources.references - 1);
+        if (resources.references > 0) {
+            return;
+        }
+
+        if (resources.vbo) {
+            glDeleteBuffers(1, &resources.vbo);
+            resources.vbo = 0;
+        }
+        if (resources.vao) {
+            glDeleteVertexArrays(1, &resources.vao);
+            resources.vao = 0;
+        }
+        if (resources.shaderProgram) {
+            glDeleteProgram(resources.shaderProgram);
+            resources.shaderProgram = 0;
+        }
+        resources.windowSizeLocation = -1;
+        resources.fillColorLocation = -1;
+        resources.opacityLocation = -1;
+    }
+
+    static GLuint compileShader(GLenum type, const char* source) {
+        GLuint shader = glCreateShader(type);
+        glShaderSource(shader, 1, &source, nullptr);
+        glCompileShader(shader);
+
+        GLint compiled = 0;
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+        if (!compiled) {
+            glDeleteShader(shader);
+            return 0;
+        }
+
+        return shader;
+    }
+
+    Vec2 transformPoint(float x, float y) const {
+        const Vec2 origin = {
+            bounds_.x + bounds_.width * transform_.origin.x,
+            bounds_.y + bounds_.height * transform_.origin.y
+        };
+
+        const float scaledX = (x - origin.x) * transform_.scale.x;
+        const float scaledY = (y - origin.y) * transform_.scale.y;
+        const float cosine = std::cos(transform_.rotate);
+        const float sine = std::sin(transform_.rotate);
+
+        return {
+            origin.x + scaledX * cosine - scaledY * sine + transform_.translate.x,
+            origin.y + scaledX * sine + scaledY * cosine + transform_.translate.y
+        };
+    }
+
+    Rect bounds_;
+    std::vector<Vec2> points_;
+    Color color_ = {1.0f, 1.0f, 1.0f, 1.0f};
+    Transform transform_;
+    float opacity_ = 1.0f;
+    GLuint vao_ = 0;
+    GLuint vbo_ = 0;
+    GLuint shaderProgram_ = 0;
+    GLint windowSizeLocation_ = -1;
+    GLint fillColorLocation_ = -1;
+    GLint opacityLocation_ = -1;
 };
 
 inline Color mixColor(const Color& from, const Color& to, float amount) {

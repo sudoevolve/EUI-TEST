@@ -47,6 +47,7 @@ enum class ElementKind {
     Column,
     Stack,
     Rect,
+    Polygon,
     Text,
     Image
 };
@@ -91,6 +92,7 @@ struct Element {
     float radius = 0.0f;
     float blur = 0.0f;
     float opacity = 1.0f;
+    std::vector<Vec2> polygonPoints;
 
     std::string text;
     std::string fontFamily;
@@ -113,14 +115,22 @@ struct Element {
     CursorShape cursor = CursorShape::Arrow;
     Color hoverColor = {1.0f, 1.0f, 1.0f, 1.0f};
     Color pressedColor = {1.0f, 1.0f, 1.0f, 1.0f};
+    bool hasStateColors = false;
+    bool smoothStateColors = true;
     std::function<void()> onClick;
     std::function<void(const PointerEvent&, const Rect&)> onPress;
+    std::function<void(const PointerEvent&, const Rect&)> onContextMenu;
     std::function<void(bool)> onFocusChanged;
     std::function<void(const KeyboardEvent&)> onTextInput;
     std::function<void(const ScrollEvent&)> onScroll;
     std::function<void(const DragEvent&)> onDrag;
+    std::function<void()> onTimer;
+    float timerSeconds = 0.0f;
     std::string visualStateSourceId;
+    std::string hoverOpacitySourceId;
     float pressedScale = 1.0f;
+    float hoverHiddenOpacity = 0.0f;
+    float hoverVisibleOpacity = 1.0f;
     Transition transition;
     bool explicitFrameAnimation = false;
 
@@ -308,6 +318,51 @@ public:
         return self();
     }
 
+    Derived& opacity(float value) {
+        element_->opacity = std::clamp(value, 0.0f, 1.0f);
+        return self();
+    }
+
+    Derived& translate(float xValue, float yValue) {
+        element_->transform.translate = {xValue, yValue};
+        return self();
+    }
+
+    Derived& translateX(float value) {
+        element_->transform.translate.x = value;
+        return self();
+    }
+
+    Derived& translateY(float value) {
+        element_->transform.translate.y = value;
+        return self();
+    }
+
+    Derived& scale(float value) {
+        element_->transform.scale = {value, value};
+        return self();
+    }
+
+    Derived& scale(float xValue, float yValue) {
+        element_->transform.scale = {xValue, yValue};
+        return self();
+    }
+
+    Derived& transformOrigin(float xValue, float yValue) {
+        element_->transform.origin = {xValue, yValue};
+        return self();
+    }
+
+    Derived& smoothStates(bool value = true) {
+        element_->smoothStateColors = value;
+        return self();
+    }
+
+    Derived& instantStates() {
+        element_->smoothStateColors = false;
+        return self();
+    }
+
     Derived& onClick(std::function<void()> callback) {
         element_->interactive = true;
         element_->cursor = CursorShape::Hand;
@@ -319,6 +374,13 @@ public:
         element_->interactive = true;
         element_->cursor = CursorShape::Hand;
         element_->onPress = std::move(callback);
+        return self();
+    }
+
+    Derived& onContextMenu(std::function<void(const PointerEvent&, const Rect&)> callback) {
+        element_->interactive = true;
+        element_->cursor = CursorShape::Hand;
+        element_->onContextMenu = std::move(callback);
         return self();
     }
 
@@ -348,7 +410,14 @@ public:
         return self();
     }
 
+    Derived& onTimer(float seconds, std::function<void()> callback) {
+        element_->timerSeconds = std::max(0.0f, seconds);
+        element_->onTimer = std::move(callback);
+        return self();
+    }
+
     Derived& visualStateFrom(const std::string& id, float pressedScaleValue = 0.965f);
+    Derived& hoverOpacityFrom(const std::string& id, float hiddenOpacity = 0.0f, float visibleOpacity = 1.0f);
 
     Derived& transition(const Transition& value) {
         element_->transition = value;
@@ -507,11 +576,13 @@ public:
 
     Derived& hoverColor(const Color& value) {
         this->element_->hoverColor = value;
+        this->element_->hasStateColors = true;
         return this->self();
     }
 
     Derived& pressedColor(const Color& value) {
         this->element_->pressedColor = value;
+        this->element_->hasStateColors = true;
         return this->self();
     }
 
@@ -519,6 +590,7 @@ public:
         this->element_->color = normal;
         this->element_->hoverColor = hover;
         this->element_->pressedColor = pressed;
+        this->element_->hasStateColors = true;
         this->element_->interactive = true;
         this->element_->cursor = CursorShape::Hand;
         return this->self();
@@ -528,6 +600,13 @@ public:
         this->element_->interactive = true;
         this->element_->cursor = CursorShape::Hand;
         this->element_->onClick = std::move(callback);
+        return this->self();
+    }
+
+    Derived& onContextMenu(std::function<void(const PointerEvent&, const Rect&)> callback) {
+        this->element_->interactive = true;
+        this->element_->cursor = CursorShape::Hand;
+        this->element_->onContextMenu = std::move(callback);
         return this->self();
     }
 
@@ -541,6 +620,26 @@ public:
 class RectBuilder : public ShapeBuilderBase<RectBuilder> {
 public:
     RectBuilder(Ui& ui, Element* element) : ShapeBuilderBase<RectBuilder>(ui, element) {}
+};
+
+class PolygonBuilder : public ShapeBuilderBase<PolygonBuilder> {
+public:
+    PolygonBuilder(Ui& ui, Element* element) : ShapeBuilderBase<PolygonBuilder>(ui, element) {}
+
+    PolygonBuilder& points(std::vector<Vec2> value) {
+        element_->polygonPoints = std::move(value);
+        return *this;
+    }
+
+    PolygonBuilder& point(float x, float y) {
+        element_->polygonPoints.push_back({x, y});
+        return *this;
+    }
+
+    PolygonBuilder& clearPoints() {
+        element_->polygonPoints.clear();
+        return *this;
+    }
 };
 
 class TextBuilder : public BuilderBase<TextBuilder> {
@@ -759,6 +858,10 @@ public:
         return RectBuilder(*this, addElement(ElementKind::Rect, id));
     }
 
+    PolygonBuilder polygon(const std::string& id) {
+        return PolygonBuilder(*this, addElement(ElementKind::Polygon, id));
+    }
+
     TextBuilder text(const std::string& id) {
         return TextBuilder(*this, addElement(ElementKind::Text, id));
     }
@@ -809,6 +912,7 @@ private:
     friend class Runtime;
     friend class BuilderBase<LayoutBuilder>;
     friend class BuilderBase<RectBuilder>;
+    friend class BuilderBase<PolygonBuilder>;
     friend class BuilderBase<TextBuilder>;
     friend class BuilderBase<ImageBuilder>;
 
@@ -861,6 +965,8 @@ private:
             prefix = "__column";
         } else if (kind == ElementKind::Rect) {
             prefix = "__rect";
+        } else if (kind == ElementKind::Polygon) {
+            prefix = "__polygon";
         } else if (kind == ElementKind::Text) {
             prefix = "__text";
         } else if (kind == ElementKind::Image) {
@@ -908,6 +1014,14 @@ template <typename Derived>
 Derived& BuilderBase<Derived>::visualStateFrom(const std::string& id, float pressedScaleValue) {
     element_->visualStateSourceId = ui_->resolveId(id);
     element_->pressedScale = std::clamp(pressedScaleValue, 0.80f, 1.0f);
+    return self();
+}
+
+template <typename Derived>
+Derived& BuilderBase<Derived>::hoverOpacityFrom(const std::string& id, float hiddenOpacity, float visibleOpacity) {
+    element_->hoverOpacitySourceId = ui_->resolveId(id);
+    element_->hoverHiddenOpacity = std::clamp(hiddenOpacity, 0.0f, 1.0f);
+    element_->hoverVisibleOpacity = std::clamp(visibleOpacity, 0.0f, 1.0f);
     return self();
 }
 
