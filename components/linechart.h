@@ -148,6 +148,7 @@ public:
                         .size(pointSize, pointSize)
                         .states(style_.point, style_.pointHover, style_.pointPressed)
                         .radius(pointSize * 0.5f)
+                        .instantStates()
                         .transition(transition_)
                         .onClick([] {})
                         .build();

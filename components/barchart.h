@@ -135,6 +135,7 @@ public:
                                 core::mixColor(color, theme::color(1.0f, 1.0f, 1.0f), 0.18f),
                                 core::mixColor(color, theme::color(0.0f, 0.0f, 0.0f), 0.12f))
                         .radius(std::min(10.0f, barWidth * 0.34f))
+                        .instantStates()
                         .transition(transition_)
                         .onClick([] {})
                         .build();
