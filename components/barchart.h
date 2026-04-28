@@ -179,9 +179,10 @@ private:
         const float pointerHeight = 8.0f;
         const float pointerHalfWidth = 7.0f;
         const float stackHeight = tooltipHeight + pointerHeight;
+        const float tooltipGap = 0.0f;
         const float tooltipX = std::clamp(anchorX - tooltipWidth * 0.5f, 12.0f, std::max(12.0f, width_ - tooltipWidth - 12.0f));
-        const bool belowAnchor = anchorY - stackHeight - 10.0f < 46.0f;
-        const float wantedY = belowAnchor ? anchorY + 10.0f : anchorY - stackHeight - 10.0f;
+        const bool belowAnchor = anchorY - stackHeight - tooltipGap < 46.0f;
+        const float wantedY = belowAnchor ? anchorY + tooltipGap : anchorY - stackHeight - tooltipGap;
         const float tooltipY = std::clamp(wantedY, 44.0f, std::max(44.0f, height_ - stackHeight - 14.0f));
         const float panelY = belowAnchor ? pointerHeight : 0.0f;
         const float pointerY = belowAnchor ? 0.0f : tooltipHeight;
