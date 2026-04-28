@@ -1644,7 +1644,7 @@ const DslAppConfig& dslAppConfig() {
         1440,
         1100,
         false,
-        galleryFrameRateLimit
+        60.0
     };
     return config;
 }

@@ -21,7 +21,7 @@ struct DslAppConfig {
     int windowWidth = 800;
     int windowHeight = 600;
     bool showFrameCountInTitle = false;
-    double (*frameRateLimit)() = nullptr;
+    double fps = 0.0;
     const char* iconPath = "assets/icon.png";
 };
 
@@ -113,8 +113,7 @@ bool showFrameCountInTitle() {
 }
 
 double frameRateLimit() {
-    const DslAppConfig& config = dslAppConfig();
-    return config.frameRateLimit ? config.frameRateLimit() : 0.0;
+    return dslAppConfig().fps;
 }
 
 int initialWindowWidth() {
