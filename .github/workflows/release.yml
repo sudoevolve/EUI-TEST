@@ -42,7 +42,8 @@ jobs:
             libxinerama-dev \
             libxcursor-dev \
             libxi-dev \
-            libgl1-mesa-dev
+            libgl1-mesa-dev \
+            libcurl4-openssl-dev
 
       - name: configure windows
         if: matrix.platform == 'windows'
