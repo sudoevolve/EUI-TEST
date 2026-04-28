@@ -19,7 +19,7 @@ int selectedPage = 0;
 bool optionDense = false;
 bool optionGlass = false;
 bool optionMotion = true;
-bool optionLimit60 = true;
+bool optionUnlockFps = false;
 bool optionNight = true;
 bool animationMoved = false;
 bool animationRotated = false;
@@ -81,7 +81,7 @@ core::Transition motionTransition() {
 }
 
 double galleryFrameRateLimit() {
-    return optionLimit60 ? 60.0 : 0.0;
+    return optionUnlockFps ? 0.0 : 90.0;
 }
 
 components::theme::ThemeColorTokens themeColors() {
@@ -1265,7 +1265,7 @@ void composeSettingsPage(core::dsl::Ui& ui, float width, float height) {
             settingRow(ui, "setting.dense", "Dense layout", "Use tighter spacing for gallery pages.", optionDense, rowWidth, [] { optionDense = !optionDense; });
             settingRow(ui, "setting.glass", "Glass surfaces", "Show transparent panel examples in controls.", optionGlass, rowWidth, [] { optionGlass = !optionGlass; });
             settingRow(ui, "setting.motion", "Animated transitions", "Keep page and property transitions enabled.", optionMotion, rowWidth, [] { optionMotion = !optionMotion; });
-            settingRow(ui, "setting.limit60", "Limit to 60 FPS", "Cap animation rendering below the display refresh rate.", optionLimit60, rowWidth, [] { optionLimit60 = !optionLimit60; });
+            settingRow(ui, "setting.unlockFps", "Unlock 90 FPS limit", "Let animation rendering use the display refresh rate.", optionUnlockFps, rowWidth, [] { optionUnlockFps = !optionUnlockFps; });
             settingRow(ui, "setting.night", "Night mode", "Switch gallery between light and dark theme tokens.", optionNight, rowWidth, [] { optionNight = !optionNight; });
         });
 }
@@ -1637,15 +1637,16 @@ void composeContent(core::dsl::Ui& ui, float width, float height) {
 } // namespace
 
 const DslAppConfig& dslAppConfig() {
-    static const DslAppConfig config = {
+    static DslAppConfig config = {
         "EUI Gallery",
         "gallery",
         {0.07f, 0.08f, 0.10f, 1.0f},
         1440,
         1100,
         false,
-        60.0
+        galleryFrameRateLimit()
     };
+    config.fps = galleryFrameRateLimit();
     return config;
 }
 
