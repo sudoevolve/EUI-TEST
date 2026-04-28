@@ -4,8 +4,13 @@
 
 #include <glad/glad.h>
 
+#include "3rd/stb_image.h"
 #include "core/dsl_runtime.h"
 #include "core/network.h"
+
+#include <filesystem>
+#include <string>
+#include <vector>
 
 namespace app {
 
@@ -17,6 +22,7 @@ struct DslAppConfig {
     int windowHeight = 600;
     bool showFrameCountInTitle = false;
     double (*frameRateLimit)() = nullptr;
+    const char* iconPath = "assets/icon.png";
 };
 
 const DslAppConfig& dslAppConfig();
@@ -31,6 +37,7 @@ inline core::dsl::Runtime& dslRuntime() {
 
 struct DslAppState {
     bool composed = false;
+    bool iconApplied = false;
     float logicalWidth = 0.0f;
     float logicalHeight = 0.0f;
 };
@@ -38,6 +45,61 @@ struct DslAppState {
 inline DslAppState& dslAppState() {
     static DslAppState state;
     return state;
+}
+
+inline std::string resolveIconPath(const char* iconPath) {
+    if (iconPath == nullptr || iconPath[0] == '\0') {
+        return {};
+    }
+
+    namespace fs = std::filesystem;
+    std::error_code error;
+    const fs::path requested(iconPath);
+    const fs::path current = fs::current_path(error);
+    std::vector<fs::path> candidates;
+    candidates.push_back(requested);
+    if (!error) {
+        candidates.push_back(current / requested);
+        candidates.push_back(current / "assets" / requested.filename());
+    }
+
+    for (const fs::path& candidate : candidates) {
+        error.clear();
+        if (fs::exists(candidate, error) && !error) {
+            return fs::absolute(candidate, error).string();
+        }
+    }
+    return {};
+}
+
+inline void applyWindowIcon(GLFWwindow* window) {
+    if (window == nullptr) {
+        return;
+    }
+
+    const std::string iconPath = resolveIconPath(dslAppConfig().iconPath);
+    if (iconPath.empty()) {
+        return;
+    }
+
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    stbi_set_flip_vertically_on_load(0);
+    unsigned char* pixels = stbi_load(iconPath.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+    if (pixels == nullptr || width <= 0 || height <= 0) {
+        if (pixels != nullptr) {
+            stbi_image_free(pixels);
+        }
+        return;
+    }
+
+    GLFWimage image{};
+    image.width = width;
+    image.height = height;
+    image.pixels = pixels;
+    glfwSetWindowIcon(window, 1, &image);
+    stbi_image_free(pixels);
 }
 
 } // namespace detail
@@ -64,6 +126,11 @@ int initialWindowHeight() {
 }
 
 bool initialize(GLFWwindow* window) {
+    detail::DslAppState& state = detail::dslAppState();
+    if (!state.iconApplied) {
+        detail::applyWindowIcon(window);
+        state.iconApplied = true;
+    }
     return detail::dslRuntime().initialize(window);
 }
 

@@ -11,7 +11,8 @@ enum class ElementKind {
     Stack,
     Rect,
     Text,
-    Image
+    Image,
+    Polygon
 };
 ```
 
@@ -21,6 +22,7 @@ enum class ElementKind {
 - `Rect`：基础视觉图元，支持颜色、渐变、圆角、边框、阴影、透明度、blur、transform、hover/pressed 状态。
 - `Text`：文本图元，支持字体、字号、颜色、换行、行高和对齐。
 - `Image`：图片图元，支持本地图片、网络图片、SVG、Bing daily、cover/contain/stretch。
+- `Polygon`：多边形图元，支持点集、颜色、透明度、transform 和 hover/pressed 状态；当前图表 tooltip 指针和 piechart 扇区都基于它。
 
 组件不进入 core 枚举。组件层只是组合 DSL 图元，例如 `components::button(ui, id)` 内部使用 `Stack + Rect + Row + Text`。
 
@@ -87,7 +89,7 @@ ui.stack("root")
 
 ## 通用交互 DSL
 
-`Row / Column / Stack / Rect / Text / Image` 都支持通用交互方法：
+`Row / Column / Stack / Rect / Text / Image / Polygon` 都支持通用交互方法：
 
 ```cpp
 .interactive(true)
@@ -229,6 +231,35 @@ Image 支持：
 
 默认 fit 是 `Cover`，图片会适应裁剪，不会强行压缩变形。
 
+## Polygon DSL
+
+```cpp
+ui.polygon("slice")
+    .size(120.0f, 120.0f)
+    .points({
+        {60.0f, 60.0f},
+        {120.0f, 0.0f},
+        {120.0f, 120.0f},
+    })
+    .color({0.22f, 0.50f, 0.88f, 1.0f})
+    .build();
+```
+
+Polygon 支持：
+
+```cpp
+.points(...)
+.point(x, y)
+.clearPoints()
+.color(...)
+.opacity(...)
+.translate(...)
+.scale(...)
+.rotate(...)
+.transformOrigin(...)
+.states(normal, hover, pressed)
+```
+
 ## 动画 DSL
 
 动画目标写在元素属性上，Runtime 负责从当前值插值到目标值：
@@ -252,6 +283,7 @@ Frame 动画需要显式 `.animate(core::AnimProperty::Frame)`。窗口大小变
 - Rect：frame、color、opacity、radius、border、shadow、blur、transform。
 - Text：frame、text color、opacity。
 - Image：frame、tint/color、opacity、radius、transform。
+- Polygon：frame、color、opacity、transform。
 
 ## 组件写法
 
@@ -265,10 +297,25 @@ Frame 动画需要显式 `.animate(core::AnimProperty::Frame)`。窗口大小变
 - `components::image(ui, id)`：返回套用 theme token 的 `ImageBuilder`。
 - `components::button(ui, id)`：薄 builder，内部组合 `Stack + Rect + Row + Text`。
 - `components::checkbox(ui, id)`：无状态 checkbox，点击回调 next checked。
+- `components::radio(ui, id)`：无状态 radio，点击回调 select / next checked。
 - `components::toggleSwitch(ui, id)`：无状态 switch，点击回调 next checked。
 - `components::progress(ui, id)`：进度条，value 范围 `0.0f - 1.0f`。
+- `components::slider(ui, id)`：滑块，点击或拖拽回调 next value。
 - `components::input(ui, id)`：基础文本输入，页面传 value，组件回调 next value。
+- `components::segmented(ui, id)`：分段选择，点击回调 next index。
+- `components::tabs(ui, id)`：标签页切换，点击回调 next index。
 - `components::scroll(ui, id)`：滚动条/offset 控制器，页面传 viewport/content/offset，组件回调 next offset。
+- `components::dropdown(ui, id)`：下拉选择，页面传 selected/open，组件回调 next index 和 open 状态。
+- `components::datepicker(ui, id)`：dialog 式日期选择器，页面传 date/open，面板内调整是 draft，点击 `Done` 后才回调 next date。
+- `components::timepicker(ui, id)`：dialog 式时间选择器，页面传 time/open，面板内调整是 draft，点击 `Done` 后才回调 next time。
+- `components::colorpicker(ui, id)`：dialog 式颜色选择器，页面传 color/open，RGB slider 和色块只改 draft，点击 `Done` 后才回调 next color。
+- `components::dataTable(ui, id)` / `components::datatable(ui, id)`：简单数据表。
+- `components::dialog(ui, id)`：模态对话框，页面传 open 状态。
+- `components::toast(ui, id)`：toast 提示，支持 duration / autoDismiss。
+- `components::contextMenu(ui, id)`：右键菜单，支持 position、screen、items、dismiss。
+- `components::linechart(ui, id)` / `components::lineChart(ui, id)`：折线图，hover 数据点显示 tooltip。
+- `components::barchart(ui, id)` / `components::barChart(ui, id)`：柱状图，hover 柱子显示 tooltip。
+- `components::piechart(ui, id)` / `components::pieChart(ui, id)`：饼图，用 `Polygon` 绘制扇区，hover 扇区显示 tooltip。
 
 按钮示例：
 
@@ -291,7 +338,7 @@ components::button(ui, "save")
 
 - 持有 `Ui`。
 - 调用 `ui.layout()` 计算逻辑坐标。
-- 按 id 缓存 Rect / Text / Image primitive 实例。
+- 按 id 缓存 Rect / Text / Image / Polygon primitive 实例。
 - 统一处理 pointer event、hit-test、press capture、click。
 - 维护 hover / press 动画状态。
 - 推进 transition 动画。

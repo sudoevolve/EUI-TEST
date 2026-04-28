@@ -24,6 +24,9 @@ bool optionNight = true;
 bool animationMoved = false;
 bool animationRotated = false;
 bool animationFaded = false;
+bool animationScaled = false;
+bool animationRounded = false;
+bool animationGlowing = false;
 bool sampleChecked = true;
 bool sampleSwitch = true;
 bool sampleRadioA = true;
@@ -33,6 +36,15 @@ int sampleSegment = 1;
 int sampleTab = 0;
 int sampleDropdown = 1;
 bool sampleDropdownOpen = false;
+int sampleYear = 2026;
+int sampleMonth = 4;
+int sampleDay = 28;
+int sampleHour = 9;
+int sampleMinute = 30;
+core::Color sampleColor = {0.22f, 0.50f, 0.88f, 1.0f};
+bool sampleDateOpen = false;
+bool sampleTimeOpen = false;
+bool sampleColorOpen = false;
 bool sampleDialogOpen = false;
 bool sampleToastVisible = false;
 bool sampleContextMenuOpen = false;
@@ -73,7 +85,9 @@ double galleryFrameRateLimit() {
 }
 
 components::theme::ThemeColorTokens themeColors() {
-    return optionNight ? components::theme::DarkThemeColors() : components::theme::LightThemeColors();
+    components::theme::ThemeColorTokens tokens = optionNight ? components::theme::DarkThemeColors() : components::theme::LightThemeColors();
+    tokens.primary = sampleColor;
+    return tokens;
 }
 
 components::theme::PageVisualTokens pageVisuals() {
@@ -134,30 +148,18 @@ core::Color buttonPressed(const core::Color& base) {
     return mixTheme(base, optionNight ? core::Color{0.0f, 0.0f, 0.0f, base.a} : themeColors().surfaceActive, optionNight ? 0.34f : 0.22f);
 }
 
-core::Color accentForPage(int page) {
-    if (page == 0) {
-        return themeColors().primary;
-    }
-    if (page == 1) {
-        return {0.88f, 0.42f, 0.58f, 1.0f};
-    }
-    if (page == 2) {
-        return {0.38f, 0.68f, 0.96f, 1.0f};
-    }
-    if (page == 3) {
-        return {0.52f, 0.72f, 0.36f, 1.0f};
-    }
-    if (page == 4) {
-        return {0.86f, 0.64f, 0.34f, 1.0f};
-    }
-    if (page == 5) {
-        return {0.62f, 0.50f, 0.88f, 1.0f};
-    }
-    return {0.26f, 0.58f, 0.94f, 1.0f};
+core::Color accent() {
+    return themeColors().primary;
 }
 
-core::Color accent() {
-    return accentForPage(selectedPage);
+int navOrderForPage(int page) {
+    if (page == 4) {
+        return 3;
+    }
+    if (page == 3) {
+        return 4;
+    }
+    return std::clamp(page, 0, 5);
 }
 
 const char* pageTitle() {
@@ -190,7 +192,7 @@ const char* pageSubtitle() {
         return "Interactive settings built with the same rect and text primitives.";
     }
     if (selectedPage == 4) {
-        return "Network images, SVG rasterization and API text requests.";
+        return "Bing daily images and API text requests in one composed page.";
     }
     if (selectedPage == 5) {
         return "A lightweight and elegant C++ GUI framework.";
@@ -212,9 +214,10 @@ void caption(core::dsl::Ui& ui, const std::string& id, const std::string& text, 
 
 void navItem(core::dsl::Ui& ui, const std::string& id, const std::string& label, unsigned int icon, int page) {
     const bool active = selectedPage == page;
-    const core::Color normal = active ? accentForPage(page) : surface();
-    const core::Color hover = active ? buttonHover(accentForPage(page)) : surfaceSoft();
-    const core::Color pressed = active ? buttonPressed(accentForPage(page)) : surfaceActive();
+    const core::Color activeAccent = accent();
+    const core::Color normal = active ? activeAccent : surface();
+    const core::Color hover = active ? buttonHover(activeAccent) : surfaceSoft();
+    const core::Color pressed = active ? buttonPressed(activeAccent) : surfaceActive();
     components::button(ui, id)
         .size(212.0f, 50.0f)
         .icon(icon)
@@ -225,7 +228,7 @@ void navItem(core::dsl::Ui& ui, const std::string& id, const std::string& label,
         .textColor(active || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
         .iconColor(active || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
         .radius(12.0f)
-        .border(1.0f, active ? withAlpha(accentForPage(page), 0.58f) : borderColor(0.60f))
+        .border(1.0f, active ? withAlpha(activeAccent, 0.58f) : borderColor(0.60f))
         .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
         .transition(pageTransition())
         .onClick([page] {
@@ -250,7 +253,7 @@ void composeSidebar(core::dsl::Ui& ui, float height) {
                 .size(4.0f, 50.0f)
                 .color(accent())
                 .radius(2.0f)
-                .translateY(selectedPage * (kNavHeight + kNavGap))
+                .translateY(static_cast<float>(navOrderForPage(selectedPage)) * (kNavHeight + kNavGap))
                 .transition(pageTransition())
                 .animate(core::AnimProperty::Transform | core::AnimProperty::Color)
                 .build();
@@ -284,8 +287,8 @@ void composeSidebar(core::dsl::Ui& ui, float height) {
                     navItem(ui, "nav.controls", "Controls", 0xF1B2, 0);
                     navItem(ui, "nav.text", "Style", 0xF1FC, 1);
                     navItem(ui, "nav.animation", "Animation", 0xF2F1, 2);
-                    navItem(ui, "nav.settings", "Settings", 0xF013, 3);
                     navItem(ui, "nav.bing", "Bing", 0xF1C5, 4);
+                    navItem(ui, "nav.settings", "Settings", 0xF013, 3);
                     navItem(ui, "nav.about", "About", 0xF05A, 5);
                 });
 
@@ -356,8 +359,8 @@ void propertyCard(core::dsl::Ui& ui, const std::string& id, const std::string& t
         .build();
 }
 
-void imageCard(core::dsl::Ui& ui, const std::string& id, const std::string& title, const std::string& source,
-               float width, float height = 122.0f, float imageHeight = 72.0f) {
+void bingImageCard(core::dsl::Ui& ui, const std::string& id, const std::string& title, int index, const std::string& market,
+                   float width, float height = 122.0f, float imageHeight = 72.0f) {
     const float labelY = std::max(14.0f, height - 30.0f);
     ui.stack(id)
         .size(width, height)
@@ -373,8 +376,8 @@ void imageCard(core::dsl::Ui& ui, const std::string& id, const std::string& titl
                 .x(14.0f)
                 .y(14.0f)
                 .size(std::max(0.0f, width - 28.0f), imageHeight)
-                .source(source)
-                .radius(12.0f)
+                .bingDaily(index, market)
+                .radius(14.0f)
                 .transition(pageTransition())
                 .build();
 
@@ -383,82 +386,8 @@ void imageCard(core::dsl::Ui& ui, const std::string& id, const std::string& titl
                 .y(labelY)
                 .size(std::max(0.0f, width - 28.0f), 22.0f)
                 .text(title)
-                .fontSize(15.0f)
+                .fontSize(16.0f)
                 .lineHeight(20.0f)
-                .color(textMuted())
-                .horizontalAlign(core::HorizontalAlign::Center)
-                .build();
-        })
-        .build();
-}
-
-void bingImageCard(core::dsl::Ui& ui, const std::string& id, float width,
-                   float height = 122.0f, float imageHeight = 72.0f) {
-    const float labelY = std::max(14.0f, height - 30.0f);
-    ui.stack(id)
-        .size(width, height)
-        .content([&] {
-            ui.rect(id + ".bg")
-                .size(width, height)
-                .color(surface())
-                .radius(18.0f)
-                .border(1.0f, borderColor())
-                .build();
-
-            ui.image(id + ".image")
-                .x(14.0f)
-                .y(14.0f)
-                .size(std::max(0.0f, width - 28.0f), imageHeight)
-                .bingDaily(0, "zh-CN")
-                .radius(12.0f)
-                .transition(pageTransition())
-                .build();
-
-            ui.text(id + ".label")
-                .x(14.0f)
-                .y(labelY)
-                .size(std::max(0.0f, width - 28.0f), 22.0f)
-                .text("Bing daily")
-                .fontSize(15.0f)
-                .lineHeight(20.0f)
-                .color(textMuted())
-                .horizontalAlign(core::HorizontalAlign::Center)
-                .build();
-        })
-        .build();
-}
-
-void mediaThumb(core::dsl::Ui& ui, const std::string& id, const std::string& title, const std::string& source, float width, bool bing = false) {
-    ui.stack(id)
-        .size(width, 88.0f)
-        .content([&] {
-            ui.rect(id + ".bg")
-                .size(width, 88.0f)
-                .color(surface())
-                .radius(12.0f)
-                .border(1.0f, borderColor())
-                .build();
-
-            auto image = ui.image(id + ".image")
-                .x(8.0f)
-                .y(8.0f)
-                .size(std::max(0.0f, width - 16.0f), 50.0f)
-                .radius(8.0f)
-                .cover();
-            if (bing) {
-                image.bingDaily(0, "zh-CN");
-            } else {
-                image.source(source);
-            }
-            image.build();
-
-            ui.text(id + ".label")
-                .x(8.0f)
-                .y(62.0f)
-                .size(std::max(0.0f, width - 16.0f), 18.0f)
-                .text(title)
-                .fontSize(13.0f)
-                .lineHeight(16.0f)
                 .color(textMuted())
                 .horizontalAlign(core::HorizontalAlign::Center)
                 .build();
@@ -508,6 +437,20 @@ std::string bingApiText() {
     return copyright.empty() ? "Bing API returned text data." : copyright;
 }
 
+std::string colorHex(core::Color color);
+
+std::string sampleDateText() {
+    char buffer[16] = {};
+    std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d", sampleYear, sampleMonth, sampleDay);
+    return std::string(buffer);
+}
+
+std::string sampleTimeText() {
+    char buffer[8] = {};
+    std::snprintf(buffer, sizeof(buffer), "%02d:%02d", sampleHour, sampleMinute);
+    return std::string(buffer);
+}
+
 void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
     const float cardGap = 18.0f;
     const float cardWidth = std::max(72.0f, std::min(204.0f, (width - cardGap * 2.0f) / 3.0f));
@@ -522,6 +465,9 @@ void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
     const float dropdownWidth = std::max(180.0f, std::min(260.0f, fieldWidth * 0.36f));
     const float tableWidth = std::max(260.0f, fieldWidth - dropdownWidth - dataRowGap);
     const float dataRowHeight = 200.0f;
+    const float pickerGap = 18.0f;
+    const float pickerWidth = std::max(154.0f, std::min(210.0f, (fieldWidth - pickerGap * 2.0f) / 3.0f));
+    const float pickerRowWidth = pickerWidth * 3.0f + pickerGap * 2.0f;
     const float chartGap = 18.0f;
     const float chartWidth = std::max(150.0f, std::min(206.0f, (fieldWidth - chartGap * 2.0f) / 3.0f));
     const float chartHeight = 236.0f;
@@ -763,6 +709,71 @@ void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
         .color(textPrimary())
         .build();
 
+    ui.row("controls.pickers.row")
+        .size(pickerRowWidth, 56.0f)
+        .gap(pickerGap)
+        .content([&] {
+            components::button(ui, "control.datepicker.open")
+                .theme(themeColors(), false)
+                .size(pickerWidth, 44.0f)
+                .icon(0xF073)
+                .text(sampleDateText())
+                .textColor(textPrimary())
+                .iconColor(accent())
+                .radius(12.0f)
+                .border(1.0f, borderColor(0.70f))
+                .shadow(10.0f, 0.0f, 3.0f, shadowColor(0.16f, 0.08f))
+                .transition(pageTransition())
+                .onClick([] {
+                    sampleDateOpen = true;
+                    sampleTimeOpen = false;
+                    sampleColorOpen = false;
+                    sampleDropdownOpen = false;
+                    sampleFeedback = "Date picker opened";
+                })
+                .build();
+
+            components::button(ui, "control.timepicker.open")
+                .theme(themeColors(), false)
+                .size(pickerWidth, 44.0f)
+                .icon(0xF017)
+                .text(sampleTimeText())
+                .textColor(textPrimary())
+                .iconColor(accent())
+                .radius(12.0f)
+                .border(1.0f, borderColor(0.70f))
+                .shadow(10.0f, 0.0f, 3.0f, shadowColor(0.16f, 0.08f))
+                .transition(pageTransition())
+                .onClick([] {
+                    sampleTimeOpen = true;
+                    sampleDateOpen = false;
+                    sampleColorOpen = false;
+                    sampleDropdownOpen = false;
+                    sampleFeedback = "Time picker opened";
+                })
+                .build();
+
+            components::button(ui, "control.colorpicker.open")
+                .theme(themeColors(), false)
+                .size(pickerWidth, 44.0f)
+                .icon(0xF53F)
+                .text(colorHex(sampleColor))
+                .textColor(textPrimary())
+                .iconColor(sampleColor)
+                .radius(12.0f)
+                .border(1.0f, borderColor(0.70f))
+                .shadow(10.0f, 0.0f, 3.0f, shadowColor(0.16f, 0.08f))
+                .transition(pageTransition())
+                .onClick([] {
+                    sampleColorOpen = true;
+                    sampleDateOpen = false;
+                    sampleTimeOpen = false;
+                    sampleDropdownOpen = false;
+                    sampleFeedback = "Color picker opened";
+                })
+                .build();
+        });
+
     ui.row("controls.data.row")
         .size(dropdownWidth + tableWidth + dataRowGap, dataRowHeight)
         .gap(dataRowGap)
@@ -776,6 +787,11 @@ void composeControlsPage(core::dsl::Ui& ui, float width, float height) {
                 .transition(pageTransition())
                 .onOpenChange([](bool open) {
                     sampleDropdownOpen = open;
+                    if (open) {
+                        sampleDateOpen = false;
+                        sampleTimeOpen = false;
+                        sampleColorOpen = false;
+                    }
                 })
                 .onChange([](int index) {
                     sampleDropdown = index;
@@ -1006,7 +1022,7 @@ void composeStylePage(core::dsl::Ui& ui, float width, float height) {
             themeSwatch(ui, "style.color.surfaceActive", "surfaceActive", tokens.surfaceActive, swatchWidth);
             themeSwatch(ui, "style.color.text", "text", tokens.text, swatchWidth);
             themeSwatch(ui, "style.color.border", "border", tokens.border, swatchWidth);
-            themeSwatch(ui, "style.color.accent", "pageAccent", accent(), swatchWidth);
+            themeSwatch(ui, "style.color.accent", "pickerAccent", accent(), swatchWidth);
         });
 
     ui.text("style.visual.title")
@@ -1030,15 +1046,23 @@ void composeStylePage(core::dsl::Ui& ui, float width, float height) {
 }
 
 void composeAnimationPage(core::dsl::Ui& ui, float width, float height) {
-    const float stageWidth = std::max(260.0f, std::min(width, 820.0f));
-    const float stageHeight = std::min(std::max(190.0f, height - 88.0f), 250.0f);
+    (void)height;
+    const float stageWidth = std::max(280.0f, std::min(width, 860.0f));
+    const float stageHeight = 268.0f;
     const float actorWidth = animationRotated ? 150.0f : 118.0f;
     const float actorHeight = animationRotated ? 96.0f : 72.0f;
-    const float actorTravel = std::max(46.0f, stageWidth - actorWidth - 56.0f);
-    const float buttonWidth = std::max(92.0f, std::min(166.0f, (width - 36.0f) / 3.0f));
+    const float actorScale = animationScaled ? 1.18f : 1.0f;
+    const float actorTravel = std::max(46.0f, stageWidth - actorWidth * actorScale - 58.0f);
+    const float buttonWidth = std::max(92.0f, std::min(166.0f, (stageWidth - 36.0f) / 3.0f));
+    const float buttonRowWidth = buttonWidth * 3.0f + 36.0f;
+    const core::Color rotateColor{0.84f, 0.46f, 0.60f, 1.0f};
+    const core::Color fadeColor{0.50f, 0.72f, 0.34f, 1.0f};
+    const core::Color scaleColor{0.92f, 0.62f, 0.26f, 1.0f};
+    const core::Color radiusColor{0.50f, 0.58f, 0.94f, 1.0f};
+    const core::Color glowColor{0.28f, 0.76f, 0.72f, 1.0f};
 
     ui.row("animation.controls")
-        .size(buttonWidth * 3.0f + 36.0f, 66.0f)
+        .size(buttonRowWidth, 58.0f)
         .gap(18.0f)
         .content([&] {
             components::button(ui, "anim.move")
@@ -1058,12 +1082,12 @@ void composeAnimationPage(core::dsl::Ui& ui, float width, float height) {
             components::button(ui, "anim.rotate")
                 .size(buttonWidth, 50.0f)
                 .text("Rotate")
-                .colors(animationRotated ? core::Color{0.84f, 0.46f, 0.60f, 1.0f} : surfaceSoft(),
-                        buttonHover(animationRotated ? core::Color{0.84f, 0.46f, 0.60f, 1.0f} : surfaceSoft()),
-                        buttonPressed(animationRotated ? core::Color{0.84f, 0.46f, 0.60f, 1.0f} : surfaceSoft()))
+                .colors(animationRotated ? rotateColor : surfaceSoft(),
+                        buttonHover(animationRotated ? rotateColor : surfaceSoft()),
+                        buttonPressed(animationRotated ? rotateColor : surfaceSoft()))
                 .textColor(animationRotated || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
                 .iconColor(animationRotated || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
-                .border(1.0f, animationRotated ? withAlpha(core::Color{0.84f, 0.46f, 0.60f, 1.0f}, 0.58f) : borderColor(0.70f))
+                .border(1.0f, animationRotated ? withAlpha(rotateColor, 0.58f) : borderColor(0.70f))
                 .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
                 .onClick([] { animationRotated = !animationRotated; })
                 .transition(pageTransition())
@@ -1072,14 +1096,61 @@ void composeAnimationPage(core::dsl::Ui& ui, float width, float height) {
             components::button(ui, "anim.fade")
                 .size(buttonWidth, 50.0f)
                 .text("Fade")
-                .colors(animationFaded ? core::Color{0.50f, 0.72f, 0.34f, 1.0f} : surfaceSoft(),
-                        buttonHover(animationFaded ? core::Color{0.50f, 0.72f, 0.34f, 1.0f} : surfaceSoft()),
-                        buttonPressed(animationFaded ? core::Color{0.50f, 0.72f, 0.34f, 1.0f} : surfaceSoft()))
+                .colors(animationFaded ? fadeColor : surfaceSoft(),
+                        buttonHover(animationFaded ? fadeColor : surfaceSoft()),
+                        buttonPressed(animationFaded ? fadeColor : surfaceSoft()))
                 .textColor(animationFaded || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
                 .iconColor(animationFaded || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
-                .border(1.0f, animationFaded ? withAlpha(core::Color{0.50f, 0.72f, 0.34f, 1.0f}, 0.58f) : borderColor(0.70f))
+                .border(1.0f, animationFaded ? withAlpha(fadeColor, 0.58f) : borderColor(0.70f))
                 .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
                 .onClick([] { animationFaded = !animationFaded; })
+                .transition(pageTransition())
+                .build();
+        });
+
+    ui.row("animation.controls.extra")
+        .size(buttonRowWidth, 58.0f)
+        .gap(18.0f)
+        .content([&] {
+            components::button(ui, "anim.scale")
+                .size(buttonWidth, 50.0f)
+                .text("Scale")
+                .colors(animationScaled ? scaleColor : surfaceSoft(),
+                        buttonHover(animationScaled ? scaleColor : surfaceSoft()),
+                        buttonPressed(animationScaled ? scaleColor : surfaceSoft()))
+                .textColor(animationScaled || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
+                .iconColor(animationScaled || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
+                .border(1.0f, animationScaled ? withAlpha(scaleColor, 0.58f) : borderColor(0.70f))
+                .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
+                .onClick([] { animationScaled = !animationScaled; })
+                .transition(pageTransition())
+                .build();
+
+            components::button(ui, "anim.radius")
+                .size(buttonWidth, 50.0f)
+                .text("Radius")
+                .colors(animationRounded ? radiusColor : surfaceSoft(),
+                        buttonHover(animationRounded ? radiusColor : surfaceSoft()),
+                        buttonPressed(animationRounded ? radiusColor : surfaceSoft()))
+                .textColor(animationRounded || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
+                .iconColor(animationRounded || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
+                .border(1.0f, animationRounded ? withAlpha(radiusColor, 0.58f) : borderColor(0.70f))
+                .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
+                .onClick([] { animationRounded = !animationRounded; })
+                .transition(pageTransition())
+                .build();
+
+            components::button(ui, "anim.glow")
+                .size(buttonWidth, 50.0f)
+                .text("Glow")
+                .colors(animationGlowing ? glowColor : surfaceSoft(),
+                        buttonHover(animationGlowing ? glowColor : surfaceSoft()),
+                        buttonPressed(animationGlowing ? glowColor : surfaceSoft()))
+                .textColor(animationGlowing || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
+                .iconColor(animationGlowing || optionNight ? core::Color{0.94f, 0.97f, 1.0f, 1.0f} : textPrimary())
+                .border(1.0f, animationGlowing ? withAlpha(glowColor, 0.58f) : borderColor(0.70f))
+                .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
+                .onClick([] { animationGlowing = !animationGlowing; })
                 .transition(pageTransition())
                 .build();
         });
@@ -1094,15 +1165,26 @@ void composeAnimationPage(core::dsl::Ui& ui, float width, float height) {
                 .border(1.0f, borderColor())
                 .build();
 
+            ui.rect("animation.stage.track")
+                .x(38.0f)
+                .y(stageHeight - 54.0f)
+                .size(std::max(0.0f, stageWidth - 76.0f), 2.0f)
+                .color(borderColor(0.48f))
+                .radius(1.0f)
+                .build();
+
             ui.rect("animation.actor")
                 .x(animationMoved ? actorTravel : 46.0f)
-                .y(animationMoved ? 58.0f : 74.0f)
+                .y(animationMoved ? 70.0f : 92.0f)
                 .size(actorWidth, actorHeight)
-                .color(animationMoved ? accent() : core::Color{0.32f, 0.62f, 0.92f, 1.0f})
-                .radius(animationRotated ? 30.0f : 18.0f)
+                .color(animationMoved ? accent() : radiusColor)
+                .radius(animationRounded ? actorHeight * 0.5f : (animationRotated ? 30.0f : 18.0f))
                 .rotate(animationRotated ? 0.42f : 0.0f)
+                .scale(actorScale)
+                .transformOrigin(0.5f, 0.5f)
                 .opacity(animationFaded ? 0.36f : 1.0f)
-                .shadow(26.0f, 0.0f, 12.0f, shadowColor(0.32f, 0.16f))
+                .shadow(animationGlowing ? 44.0f : 26.0f, 0.0f, animationGlowing ? 18.0f : 12.0f,
+                        animationGlowing ? withAlpha(glowColor, optionNight ? 0.42f : 0.26f) : shadowColor(0.32f, 0.16f))
                 .transition(motionTransition())
                 .animate(core::AnimProperty::Frame | core::AnimProperty::Color | core::AnimProperty::Opacity |
                          core::AnimProperty::Radius | core::AnimProperty::Shadow | core::AnimProperty::Transform)
@@ -1189,26 +1271,25 @@ void composeSettingsPage(core::dsl::Ui& ui, float width, float height) {
 }
 
 void composeBingPage(core::dsl::Ui& ui, float width, float height) {
-    const float contentWidth = std::max(260.0f, std::min(width, 820.0f));
-    const float cardGap = 18.0f;
-    const float cardWidth = std::max(90.0f, std::min(246.0f, (contentWidth - cardGap * 2.0f) / 3.0f));
-    const float rowWidth = cardWidth * 3.0f + cardGap * 2.0f;
-    const float mediaHeight = 182.0f;
-    const float mediaImageHeight = 140.0f;
-    const float apiHeight = std::clamp(height - 250.0f, 72.0f, 112.0f);
+    const float contentWidth = std::max(260.0f, std::min(width, 860.0f));
+    const float cardGap = 20.0f;
+    const float cardWidth = std::max(116.0f, std::min(400.0f, (contentWidth - cardGap) * 0.5f));
+    const float rowWidth = cardWidth * 2.0f + cardGap;
+    const float mediaHeight = 252.0f;
+    const float mediaImageHeight = 198.0f;
+    const float apiHeight = 138.0f;
 
     ui.column("bing.body")
         .size(width, height)
         .alignItems(core::Align::CENTER)
-        .gap(18.0f)
+        .gap(22.0f)
         .content([&] {
             ui.row("bing.media")
                 .size(rowWidth, mediaHeight)
                 .gap(cardGap)
                 .content([&] {
-                    imageCard(ui, "bing.media.png", "Local PNG", "assets/icon.png", cardWidth, mediaHeight, mediaImageHeight);
-                    imageCard(ui, "bing.media.svg", "Local SVG", "assets/icon.svg", cardWidth, mediaHeight, mediaImageHeight);
-                    bingImageCard(ui, "bing.media.daily", cardWidth, mediaHeight, mediaImageHeight);
+                    bingImageCard(ui, "bing.media.today", "Bing Today", 0, "zh-CN", cardWidth, mediaHeight, mediaImageHeight);
+                    bingImageCard(ui, "bing.media.yesterday", "Bing Yesterday", 1, "zh-CN", cardWidth, mediaHeight, mediaImageHeight);
                 });
 
             ui.stack("bing.api")
@@ -1223,18 +1304,18 @@ void composeBingPage(core::dsl::Ui& ui, float width, float height) {
 
                     ui.text("bing.api.title")
                         .x(22.0f)
-                        .y(12.0f)
-                        .size(std::max(0.0f, contentWidth - 44.0f), 28.0f)
+                        .y(18.0f)
+                        .size(std::max(0.0f, contentWidth - 44.0f), 30.0f)
                         .text("Bing API text")
-                        .fontSize(20.0f)
+                        .fontSize(22.0f)
                         .lineHeight(26.0f)
                         .color(textPrimary())
                         .build();
 
                     ui.text("bing.api.text")
                         .x(22.0f)
-                        .y(42.0f)
-                        .size(std::max(0.0f, contentWidth - 44.0f), std::max(0.0f, apiHeight - 52.0f))
+                        .y(54.0f)
+                        .size(std::max(0.0f, contentWidth - 44.0f), std::max(0.0f, apiHeight - 68.0f))
                         .text(bingApiText())
                         .fontSize(16.0f)
                         .lineHeight(22.0f)
@@ -1248,116 +1329,164 @@ void composeBingPage(core::dsl::Ui& ui, float width, float height) {
 }
 
 void composeAboutPage(core::dsl::Ui& ui, float width, float height) {
-    const float contentWidth = std::max(240.0f, std::min(width, 900.0f));
-    const float logoSize = 130.0f;
-    const float logoImageSize = 130.0f;
-    const float buttonGap = 36.0f;
-    const float buttonWidth = std::max(170.0f, std::min(330.0f, (contentWidth - buttonGap) * 0.5f));
+    const float contentWidth = std::max(280.0f, std::min(width, 860.0f));
+    const bool compact = contentWidth < 620.0f;
+    const float logoSize = compact ? 112.0f : 126.0f;
+    const float buttonGap = compact ? 16.0f : 14.0f;
+    const float buttonWidth = compact
+        ? std::max(124.0f, std::min(180.0f, (contentWidth - buttonGap) * 0.5f))
+        : 162.0f;
     const float buttonRowWidth = buttonWidth * 2.0f + buttonGap;
-    const float licenseSpacer = 10.0f;
+    const float heroHeight = compact ? 342.0f : 238.0f;
+    const float licenseHeight = 92.0f;
 
     ui.column("about.body")
         .size(width, height)
         .alignItems(core::Align::CENTER)
-        .gap(8.0f)
+        .gap(20.0f)
         .content([&] {
-            ui.stack("about.logo")
-                .size(logoSize, logoSize)
+            ui.stack("about.hero")
+                .size(contentWidth, heroHeight)
                 .content([&] {
-                    ui.rect("about.logo.frame")
-                        .size(logoSize, logoSize)
+                    ui.rect("about.hero.bg")
+                        .size(contentWidth, heroHeight)
                         .color(surface())
-                        .radius(34.0f)
+                        .radius(22.0f)
+                        .border(1.0f, borderColor())
+                        .build();
+
+                    const float logoX = compact ? (contentWidth - logoSize) * 0.5f : 24.0f;
+                    const float logoY = compact ? 20.0f : 40.0f;
+                    ui.rect("about.logo.frame")
+                        .x(logoX)
+                        .y(logoY)
+                        .size(logoSize, logoSize)
+                        .color(surfaceSoft())
+                        .radius(28.0f)
                         .shadow(20.0f, 0.0f, 10.0f, shadowColor(0.24f, 0.12f))
                         .build();
 
                     ui.image("about.logo.image")
-                        .x((logoSize - logoImageSize) * 0.5f)
-                        .y((logoSize - logoImageSize) * 0.5f)
-                        .size(logoImageSize, logoImageSize)
+                        .x(logoX)
+                        .y(logoY)
+                        .size(logoSize, logoSize)
                         .source("assets/icon.png")
-                        .radius(34.0f)
+                        .radius(28.0f)
                         .cover()
                         .build();
-                })
-                .build();
 
-            ui.row("about.actions")
-                .size(buttonRowWidth, 58.0f)
-                .gap(buttonGap)
-                .content([&] {
-                    components::button(ui, "about.github")
-                        .size(buttonWidth, 58.0f)
-                        .icon(0xF0C1)
-                        .iconSize(24.0f)
-                        .fontSize(22.0f)
-                        .text("GitHub")
-                        .colors(accent(), buttonHover(accent()), buttonPressed(accent()))
-                        .radius(8.0f)
-                        .border(1.0f, withAlpha(accent(), 0.58f))
-                        .shadow(14.0f, 0.0f, 5.0f, shadowColor(0.22f, 0.10f))
-                        .transition(pageTransition())
-                        .onClick([] {
-                            core::platform::openUrl("https://github.com/sudoevolve/EUI-NEO");
-                        })
-                        .build();
-
-                    components::button(ui, "about.group")
-                        .size(buttonWidth, 58.0f)
-                        .icon(0xF0C0)
-                        .iconSize(22.0f)
-                        .fontSize(22.0f)
-                        .text("Join Group")
-                        .colors(surfaceSoft(), buttonHover(surfaceSoft()), buttonPressed(surfaceSoft()))
-                        .textColor(textPrimary())
-                        .iconColor(textPrimary())
-                        .radius(8.0f)
-                        .border(1.0f, borderColor())
-                        .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
-                        .transition(pageTransition())
-                        .onClick([] {
-                            core::platform::openUrl("https://qm.qq.com/q/kaPB4paOpa");
-                        })
-                        .build();
-                });
-
-            ui.stack("about.spacer")
-                .size(1.0f, licenseSpacer)
-                .build();
-
-            ui.column("about.license")
-                .size(contentWidth, 116.0f)
-                .alignItems(core::Align::CENTER)
-                .gap(6.0f)
-                .content([&] {
-                    ui.text("about.license.title")
-                        .size(contentWidth, 38.0f)
-                        .text("License")
+                    const float infoX = compact ? 24.0f : logoX + logoSize + 30.0f;
+                    const float infoY = compact ? logoY + logoSize + 18.0f : 38.0f;
+                    const float infoWidth = compact ? std::max(0.0f, contentWidth - 48.0f) : std::max(0.0f, contentWidth - infoX - 24.0f);
+                    ui.text("about.hero.title")
+                        .x(infoX)
+                        .y(infoY)
+                        .size(infoWidth, 36.0f)
+                        .text("EUI Neo")
                         .customFont("YouSheBiaoTiHei")
                         .fontSize(32.0f)
                         .lineHeight(36.0f)
                         .color(textPrimary())
-                        .horizontalAlign(core::HorizontalAlign::Center)
+                        .horizontalAlign(compact ? core::HorizontalAlign::Center : core::HorizontalAlign::Left)
+                        .build();
+
+                    ui.text("about.hero.copy")
+                        .x(infoX)
+                        .y(infoY + 42.0f)
+                        .size(infoWidth, compact ? 58.0f : 58.0f)
+                        .text("A lightweight C++ UI playground for themed controls, motion and image rendering.")
+                        .fontSize(17.0f)
+                        .lineHeight(24.0f)
+                        .maxWidth(infoWidth)
+                        .wrap(true)
+                        .color(textMuted())
+                        .horizontalAlign(compact ? core::HorizontalAlign::Center : core::HorizontalAlign::Left)
+                        .build();
+
+                    ui.row("about.actions")
+                        .x(compact ? (contentWidth - buttonRowWidth) * 0.5f : infoX)
+                        .y(compact ? heroHeight - 74.0f : 162.0f)
+                        .size(buttonRowWidth, 52.0f)
+                        .gap(buttonGap)
+                        .content([&] {
+                            components::button(ui, "about.github")
+                                .size(buttonWidth, 52.0f)
+                                .icon(0xF0C1)
+                                .iconSize(20.0f)
+                                .fontSize(19.0f)
+                                .text("GitHub")
+                                .colors(accent(), buttonHover(accent()), buttonPressed(accent()))
+                                .radius(12.0f)
+                                .border(1.0f, withAlpha(accent(), 0.58f))
+                                .shadow(14.0f, 0.0f, 5.0f, shadowColor(0.22f, 0.10f))
+                                .transition(pageTransition())
+                                .onClick([] {
+                                    core::platform::openUrl("https://github.com/sudoevolve/EUI-NEO");
+                                })
+                                .build();
+
+                            components::button(ui, "about.group")
+                                .size(buttonWidth, 52.0f)
+                                .icon(0xF0C0)
+                                .iconSize(19.0f)
+                                .fontSize(19.0f)
+                                .text("Group")
+                                .colors(surfaceSoft(), buttonHover(surfaceSoft()), buttonPressed(surfaceSoft()))
+                                .textColor(textPrimary())
+                                .iconColor(textPrimary())
+                                .radius(12.0f)
+                                .border(1.0f, borderColor())
+                                .shadow(12.0f, 0.0f, 4.0f, shadowColor(0.18f, 0.08f))
+                                .transition(pageTransition())
+                                .onClick([] {
+                                    core::platform::openUrl("https://qm.qq.com/q/kaPB4paOpa");
+                                })
+                                .build();
+                        });
+                })
+                .build();
+
+            ui.stack("about.license")
+                .size(contentWidth, licenseHeight)
+                .content([&] {
+                    ui.rect("about.license.bg")
+                        .size(contentWidth, licenseHeight)
+                        .color(surface())
+                        .radius(18.0f)
+                        .border(1.0f, borderColor())
+                        .build();
+
+                    ui.text("about.license.title")
+                        .x(22.0f)
+                        .y(12.0f)
+                        .size(std::max(0.0f, contentWidth - 44.0f), 26.0f)
+                        .text("License")
+                        .customFont("YouSheBiaoTiHei")
+                        .fontSize(22.0f)
+                        .lineHeight(25.0f)
+                        .color(textPrimary())
                         .build();
 
                     ui.text("about.license.copy")
-                        .size(contentWidth, 28.0f)
+                        .x(22.0f)
+                        .y(40.0f)
+                        .size(std::max(0.0f, contentWidth - 44.0f), 22.0f)
                         .text("Copyright @2026 SudoEvolve")
                         .customFont("YouSheBiaoTiHei")
-                        .fontSize(22.0f)
-                        .lineHeight(26.0f)
+                        .fontSize(17.0f)
+                        .lineHeight(21.0f)
                         .color(textMuted())
-                        .horizontalAlign(core::HorizontalAlign::Center)
                         .build();
 
                     ui.text("about.license.type")
-                        .size(contentWidth, 28.0f)
+                        .x(22.0f)
+                        .y(64.0f)
+                        .size(std::max(0.0f, contentWidth - 44.0f), 22.0f)
                         .text("Licensed under apache2.0")
                         .customFont("YouSheBiaoTiHei")
-                        .fontSize(20.0f)
-                        .lineHeight(25.0f)
+                        .fontSize(16.0f)
+                        .lineHeight(20.0f)
                         .color(textMuted())
-                        .horizontalAlign(core::HorizontalAlign::Center)
                         .build();
 
                 })
@@ -1386,8 +1515,8 @@ float pageBodyContentHeight(float viewportHeight) {
     if (selectedPage == 0) {
         const float controlsContentHeight =
             30.0f + 68.0f + 44.0f + 92.0f + 14.0f + 32.0f + 46.0f +
-            30.0f + 82.0f + 22.0f + 30.0f + 200.0f + 30.0f + 236.0f +
-            30.0f + 144.0f + 144.0f + bodyGap * 16.0f + 56.0f;
+            30.0f + 82.0f + 22.0f + 30.0f + 56.0f + 200.0f + 30.0f + 236.0f +
+            30.0f + 144.0f + 144.0f + bodyGap * 17.0f + 56.0f;
         return std::max(viewportHeight, controlsContentHeight);
     }
     if (selectedPage == 1) {
@@ -1397,15 +1526,15 @@ float pageBodyContentHeight(float viewportHeight) {
         return std::max(viewportHeight, styleContentHeight);
     }
     if (selectedPage == 2) {
-        return std::max(viewportHeight, 430.0f);
+        return viewportHeight;
     }
     if (selectedPage == 3) {
         return std::max(viewportHeight, 430.0f);
     }
     if (selectedPage == 4) {
-        return std::max(viewportHeight, 340.0f);
+        return std::max(viewportHeight, 440.0f);
     }
-    return std::max(viewportHeight, 360.0f);
+    return viewportHeight;
 }
 
 void composeContent(core::dsl::Ui& ui, float width, float height) {
@@ -1467,13 +1596,15 @@ void composeContent(core::dsl::Ui& ui, float width, float height) {
                         .transition(textTransition())
                         .build();
 
-                    ui.stack("page.body")
+                    auto body = ui.stack("page.body")
                         .size(innerWidth, bodyHeight)
-                        .clip()
-                        .onScroll([page, maxScroll](const core::ScrollEvent& event) {
+                        .clip();
+                    if (scrollable) {
+                        body.onScroll([page, maxScroll](const core::ScrollEvent& event) {
                             pageScroll[page] = std::clamp(pageScroll[page] - static_cast<float>(event.y) * 48.0f, 0.0f, maxScroll);
-                        })
-                        .content([&] {
+                        });
+                    }
+                    body.content([&] {
                             ui.column("page.body.content")
                                 .y(-scrollOffset)
                                 .size(bodyContentWidth, contentHeight)
@@ -1575,6 +1706,61 @@ void compose(core::dsl::Ui& ui, const core::dsl::Screen& screen) {
         .onDismiss([] {
             sampleContextMenuOpen = false;
             sampleFeedback = "Context menu dismissed";
+        })
+        .build();
+
+    components::datepicker(ui, "feedback.datepicker")
+        .theme(themeColors())
+        .screen(screen.width, screen.height)
+        .size(420.0f, 270.0f)
+        .date(sampleYear, sampleMonth, sampleDay)
+        .open(sampleDateOpen)
+        .transition(pageTransition())
+        .z(1200)
+        .onOpenChange([](bool open) {
+            sampleDateOpen = open;
+        })
+        .onChange([](int year, int month, int day) {
+            sampleYear = year;
+            sampleMonth = month;
+            sampleDay = day;
+            sampleFeedback = "Date changed";
+        })
+        .build();
+
+    components::timepicker(ui, "feedback.timepicker")
+        .theme(themeColors())
+        .screen(screen.width, screen.height)
+        .size(330.0f, 264.0f)
+        .time(sampleHour, sampleMinute)
+        .minuteStep(5)
+        .open(sampleTimeOpen)
+        .transition(pageTransition())
+        .z(1200)
+        .onOpenChange([](bool open) {
+            sampleTimeOpen = open;
+        })
+        .onChange([](int hour, int minute) {
+            sampleHour = hour;
+            sampleMinute = minute;
+            sampleFeedback = "Time changed";
+        })
+        .build();
+
+    components::colorpicker(ui, "feedback.colorpicker")
+        .theme(themeColors())
+        .screen(screen.width, screen.height)
+        .size(420.0f, 320.0f)
+        .value(sampleColor)
+        .open(sampleColorOpen)
+        .transition(pageTransition())
+        .z(1200)
+        .onOpenChange([](bool open) {
+            sampleColorOpen = open;
+        })
+        .onChange([](core::Color color) {
+            sampleColor = color;
+            sampleFeedback = "Color changed";
         })
         .build();
 

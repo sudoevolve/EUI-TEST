@@ -237,20 +237,11 @@ std::string resolveBingImagePath(const std::string& uri, bool* pending) {
         *pending = false;
     }
 
-    const std::string localPath = buildDownloadedImagePath(uri);
-    if (localPath.empty()) {
-        return {};
-    }
-
     {
         std::lock_guard<std::mutex> lock(gRemoteMutex);
         const auto cached = gDownloadedPathCache.find(uri);
         if (cached != gDownloadedPathCache.end() && std::filesystem::exists(cached->second)) {
             return cached->second;
-        }
-        if (std::filesystem::exists(localPath)) {
-            gDownloadedPathCache[uri] = localPath;
-            return localPath;
         }
         if (gDownloadFailed[uri]) {
             return {};
@@ -267,22 +258,32 @@ std::string resolveBingImagePath(const std::string& uri, bool* pending) {
         }
     }
 
-    std::thread worker([uri, localPath] {
+    std::thread worker([uri] {
         std::string payload;
+        std::string imageUrl;
+        std::string localPath;
         bool ok = network::downloadUrlToString(buildBingDailyApiUrl(uri), payload);
         if (ok) {
-            const std::string imageUrl = extractBingImageUrlFromJson(payload);
-            ok = !imageUrl.empty() && network::downloadUrlToFile(imageUrl, localPath);
+            imageUrl = extractBingImageUrlFromJson(payload);
+            localPath = buildDownloadedImagePath(imageUrl);
+            if (imageUrl.empty() || localPath.empty()) {
+                ok = false;
+            } else if (!std::filesystem::exists(localPath)) {
+                ok = network::downloadUrlToFile(imageUrl, localPath);
+            }
         }
         {
             std::lock_guard<std::mutex> lock(gRemoteMutex);
             gDownloadInFlight.erase(uri);
             if (ok && std::filesystem::exists(localPath)) {
                 gDownloadedPathCache[uri] = localPath;
+                gDownloadedPathCache[imageUrl] = localPath;
                 gDownloadFailed.erase(uri);
             } else {
                 gDownloadFailed[uri] = true;
-                std::remove(localPath.c_str());
+                if (!localPath.empty()) {
+                    std::remove(localPath.c_str());
+                }
             }
         }
         gRemoteImageReady.store(true);
