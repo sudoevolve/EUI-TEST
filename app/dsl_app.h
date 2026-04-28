@@ -101,7 +101,6 @@ bool update(GLFWwindow* window, float deltaSeconds, int windowWidth, int windowH
     if (detail::dslRuntime().needsCompose()) {
         composeFrame();
         changed = detail::dslRuntime().update(window, 0.0f, pointerScale, dpiScale) || changed;
-        detail::dslRuntime().markFullRedraw();
         changed = true;
     }
 

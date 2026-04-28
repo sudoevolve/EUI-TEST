@@ -27,6 +27,26 @@ class Runtime {
         float scale = 1.0f;
     };
 
+    struct ElementSnapshot {
+        std::string id;
+        ElementKind kind = ElementKind::Stack;
+        int zIndex = 0;
+        bool clip = false;
+        std::size_t childCount = 0;
+
+        bool operator==(const ElementSnapshot& other) const {
+            return id == other.id &&
+                   kind == other.kind &&
+                   zIndex == other.zIndex &&
+                   clip == other.clip &&
+                   childCount == other.childCount;
+        }
+
+        bool operator!=(const ElementSnapshot& other) const {
+            return !(*this == other);
+        }
+    };
+
 public:
     bool initialize() {
         return true;
@@ -39,12 +59,19 @@ public:
 
     template <typename ComposeFn>
     void compose(const std::string& pageId, float logicalWidth, float logicalHeight, ComposeFn&& composeFn) {
+        const std::vector<ElementSnapshot> previousStructure = elementStructure_;
         const Screen screen{logicalWidth, logicalHeight};
         ui_.begin(pageId);
         ui_.setFocusedId(focusedId_);
         composeFn(ui_, screen);
         ui_.end();
         ui_.layout(screen);
+        elementStructure_ = collectElementStructure();
+
+        if (elementStructure_ != previousStructure) {
+            needsRender_ = true;
+            fullRedraw_ = true;
+        }
 
         if (logicalWidth_ != logicalWidth || logicalHeight_ != logicalHeight) {
             needsRender_ = true;
@@ -173,6 +200,7 @@ public:
         images_.clear();
         interactions_.clear();
         frameTargets_.clear();
+        elementStructure_.clear();
         ImagePrimitive::releaseCachedTextures();
         releaseRenderCache();
         destroyCursors();
@@ -187,6 +215,7 @@ private:
         SmoothedValue<float> pressBlend;
         AnimatedValue<LayoutRect> frame;
         AnimatedValue<Color> color;
+        Gradient gradient;
         AnimatedValue<float> radius;
         AnimatedValue<float> blur;
         AnimatedValue<float> opacity;
@@ -201,6 +230,15 @@ private:
         AnimatedValue<LayoutRect> frame;
         AnimatedValue<Color> color;
         AnimatedValue<float> opacity;
+        std::string text;
+        std::string fontFamily;
+        float fontSize = 16.0f;
+        int fontWeight = 400;
+        float maxWidth = 0.0f;
+        bool wrap = false;
+        HorizontalAlign horizontalAlign = HorizontalAlign::Left;
+        VerticalAlign verticalAlign = VerticalAlign::Top;
+        float lineHeight = 0.0f;
     };
 
     struct ImageInstance {
@@ -242,6 +280,20 @@ private:
         for (const Element* child : children) {
             forEachElement(*child, fn);
         }
+    }
+
+    std::vector<ElementSnapshot> collectElementStructure() const {
+        std::vector<ElementSnapshot> result;
+        forEachElement([&](const Element& element) {
+            result.push_back({
+                element.id,
+                element.kind,
+                element.zIndex,
+                element.clip,
+                element.children.size()
+            });
+        });
+        return result;
     }
 
     static std::vector<const Element*> orderedElements(const std::vector<std::unique_ptr<Element>>& elements) {
@@ -381,6 +433,13 @@ private:
 
     static Rect imageVisualRect(const LayoutRect& frame, const Transform& transform = {}) {
         return transformRect({frame.x, frame.y, frame.width, frame.height}, frame, transform);
+    }
+
+    static bool sameGradient(const Gradient& left, const Gradient& right) {
+        return left.enabled == right.enabled &&
+               left.direction == right.direction &&
+               closeEnough(left.start, right.start) &&
+               closeEnough(left.end, right.end);
     }
 
     void applyCursor(GLFWwindow* window) {
@@ -780,8 +839,12 @@ private:
         const float press = instance.pressBlend.value();
         const Color hoverColor = mixColor(element.color, element.hoverColor, hover);
         const Color currentColor = mixColor(hoverColor, element.pressedColor, press);
+        const bool gradientChanged = !sameGradient(instance.gradient, element.gradient);
+        if (gradientChanged) {
+            instance.gradient = element.gradient;
+        }
 
-        bool changed = hoverChanged || pressChanged || (interactive && instance.interaction.changed);
+        bool changed = hoverChanged || pressChanged || gradientChanged || (interactive && instance.interaction.changed);
         changed = instance.frame.setTarget(element.frame, element.transition, !snapFrame && shouldAnimateFrame(element)) || changed;
         changed = instance.color.setTarget(currentColor, element.transition, shouldAnimate(element, AnimProperty::Color)) || changed;
         changed = instance.radius.setTarget(element.radius, element.transition, shouldAnimate(element, AnimProperty::Radius)) || changed;
@@ -811,6 +874,28 @@ private:
         TextInstance& instance = textInstance(element.id);
         const Rect beforeRect{instance.frame.value().x, instance.frame.value().y, instance.frame.value().width, instance.frame.value().height};
 
+        const bool contentChanged =
+            instance.text != element.text ||
+            instance.fontFamily != element.fontFamily ||
+            instance.fontSize != element.fontSize ||
+            instance.fontWeight != element.fontWeight ||
+            instance.maxWidth != element.maxWidth ||
+            instance.wrap != element.wrap ||
+            instance.horizontalAlign != element.horizontalAlign ||
+            instance.verticalAlign != element.verticalAlign ||
+            instance.lineHeight != element.lineHeight;
+        if (contentChanged) {
+            instance.text = element.text;
+            instance.fontFamily = element.fontFamily;
+            instance.fontSize = element.fontSize;
+            instance.fontWeight = element.fontWeight;
+            instance.maxWidth = element.maxWidth;
+            instance.wrap = element.wrap;
+            instance.horizontalAlign = element.horizontalAlign;
+            instance.verticalAlign = element.verticalAlign;
+            instance.lineHeight = element.lineHeight;
+        }
+
         bool changed = false;
         changed = instance.frame.setTarget(element.frame, element.transition, !snapFrame && shouldAnimateFrame(element)) || changed;
         changed = instance.color.setTarget(element.textColor, element.transition, shouldAnimate(element, AnimProperty::TextColor)) || changed;
@@ -820,7 +905,7 @@ private:
         changed = instance.color.tick(deltaSeconds) || changed;
         changed = instance.opacity.tick(deltaSeconds) || changed;
 
-        if (changed) {
+        if (changed || contentChanged) {
             const Rect afterRect{instance.frame.value().x, instance.frame.value().y, instance.frame.value().width, instance.frame.value().height};
             addDirtyUnion(beforeRect, afterRect);
         }
@@ -1192,6 +1277,7 @@ private:
     std::unordered_map<std::string, ImageInstance> images_;
     std::unordered_map<std::string, InteractionInstance> interactions_;
     std::unordered_map<std::string, LayoutRect> frameTargets_;
+    std::vector<ElementSnapshot> elementStructure_;
     std::vector<LogicalDirtyRect> dirtyRects_;
     bool needsRender_ = true;
     bool animating_ = false;
